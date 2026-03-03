@@ -1,0 +1,8 @@
+## Interface: 120001
+## Title: Preydator
+## Notes: Plays a custom predator click when Prey reaches final state.
+## Author: Raging Altoholic
+## Version: 0.1.0
+## SavedVariables: PreydatorDB, PreydatorDebugDB
+
+Preydator.lua
