@@ -2,7 +2,7 @@
 ## Title: Preydator
 ## Notes: Plays a custom predator click when Prey reaches final state.
 ## Author: RagingAltoholic
-## Version: 0.1.0
+## Version: 1.0.0
 ## SavedVariables: PreydatorDB, PreydatorDebugDB
 
 Preydator.lua

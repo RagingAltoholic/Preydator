@@ -1,49 +1,69 @@
 # Preydator
 
-Minimal WoW addon that plays a custom predator clicking sound when your active Prey reaches the **Final** hunt state.
+Preydator is a World of Warcraft addon that tracks your active Prey Hunt stage, displays a customizable progress bar, and plays stage-based audio cues.
 
-## Install custom sound
+## Quick start
 
-1. Create this folder:
+1. Install the addon in:
+
+   `Interface/AddOns/Preydator/`
+
+2. Optional: add your own sound files in:
 
    `Interface/AddOns/Preydator/sounds/`
 
-2. Put your sound file here:
+3. Reload your UI with `/reload`.
 
-   `Interface/AddOns/Preydator/sounds/predator-idle.ogg`
+4. Open settings with `/pd options` (or `/preydator options`).
 
-   and
+## Stage flow shown by the bar
 
-   `Interface/AddOns/Preydator/sounds/predator-alert.ogg`
+Preydator follows this hunt progression:
 
-3. Reload UI (`/reload`).
+1. Scent in the Wind
+2. Blood in the Shadows
+3. Echoes of the Kill
+4. Feast of the Fang
 
-The sound file must exist before login/reload for `PlaySoundFile` to load it.
+Behavior flow:
 
-## Detection behavior
+- No active prey -> normal hidden/idle behavior depending on your settings
+- Active prey but wrong zone -> out-of-zone label
+- Stage 1 -> Stage 2 -> Stage 3 -> Stage 4
+- Stage 4 always displays as `100%`
 
-- Uses `C_QuestLog.GetActivePreyQuest()` to confirm you have an active Prey quest.
-- Listens for `UPDATE_UI_WIDGET` / `UPDATE_ALL_UI_WIDGETS` and reads `PreyHuntProgress` widget data.
-- Plays once per active Prey quest when progress transitions into `Final`.
+## Using your own audio clips
 
-## Progress bar + stages
+Drop your custom files into:
 
-The addon now shows a compact stage bar with your flow:
+- `Interface/AddOns/Preydator/sounds/predator-alert.ogg`
+- `Interface/AddOns/Preydator/sounds/predator-ambush.ogg`
+- `Interface/AddOns/Preydator/sounds/predator-torment.ogg`
+- `Interface/AddOns/Preydator/sounds/predator-kill.ogg`
 
-1. Isle
-2. Alert
-3. Ambush
-4. Torment Warning
-5. Kill
+Notes:
 
-Stage mapping uses live Prey widget states and fills from `0% -> 100%`. When the active Prey quest is turned in, the bar briefly shows **Kill** at `100%`.
+- Keep the exact filenames above.
+- Use `.ogg` format.
+- Reload UI after replacing audio files.
+
+## What you can customize in settings
+
+- Bar lock/unlock and on-screen position
+- Scale, width, height, font size
+- Texture preset and colors (bar, title, percent text)
+- Stage names and out-of-zone label
+- Percent display style and tick marks
+- Sound enable/disable, channel, and sound enhancement
+- Test buttons for each stage sound
+- Reset all settings to defaults
 
 ## Slash commands
 
-- `/preydator test` (or `/pd test`) - plays `predator-idle.ogg`.
-- `/preydator testalert` - plays `predator-alert.ogg`.
-- `/preydator inspect` - prints live quest/widget/state diagnostics to chat.
-- `/preydator fillmode <strict|stage>` - strict uses real percent only; stage falls back to stage fill when percent is unavailable.
-- `/preydator show` - force shows the stage bar.
-- `/preydator hide` - returns bar to auto mode.
-- `/preydator toggle` - toggles force-show.
+- `/preydator options` or `/pd options` - open addon settings
+- `/preydator inspect` or `/pd inspect` - print live diagnostic state
+- `/preydator show` - force show bar
+- `/preydator hide` - return to auto visibility
+- `/preydator toggle` - toggle force show
+- `/preydator mem` - print memory usage snapshot
+- `/preydator debug <on|off|show|clear>` - debug logging controls

@@ -30,6 +30,7 @@ _G.SLASH_PREYDATOR2 = "/pd"
 
 local PREY_WIDGET_TYPE = 31
 local PREY_PROGRESS_FINAL = 3
+local MAX_STAGE = 4
 local WIDGET_SHOWN = 1
 -- local IDLE_SOUND_PATH = "Interface\\AddOns\\Preydator\\sounds\\predator-idle.ogg"
 local ALERT_SOUND_PATH = "Interface\\AddOns\\Preydator\\sounds\\predator-alert.ogg"
@@ -43,21 +44,18 @@ local PERCENT_DISPLAY_INSIDE = "inside"
 local PERCENT_DISPLAY_BELOW_BAR = "below_bar"
 local PERCENT_DISPLAY_UNDER_TICKS = "under_ticks"
 local PERCENT_DISPLAY_OFF = "off"
-local PERCENT_FALLBACK_STRICT = "strict"
 local PERCENT_FALLBACK_STAGE = "stage"
 local DEFAULT_STAGE_LABELS = {
-    [1] = "Mark of the Hunt",
-    [2] = "Scent in the Wind",
-    [3] = "Blood in the Shadows",
-    [4] = "Echoes of the Kill",
-    [5] = "Feast of the Fang",
+    [1] = "Scent in the Wind",
+    [2] = "Blood in the Shadows",
+    [3] = "Echoes of the Kill",
+    [4] = "Feast of the Fang",
 }
 local STAGE_PCT = {
-    [1] = 0,
-    [2] = 25,
-    [3] = 50,
-    [4] = 75,
-    [5] = 100,
+    [1] = 25,
+    [2] = 50,
+    [3] = 75,
+    [4] = 100,
 }
 
 local TEXTURE_PRESETS = {
@@ -65,7 +63,6 @@ local TEXTURE_PRESETS = {
     flat = "Interface\\Buttons\\WHITE8x8",
     raid = "Interface\\RaidFrame\\Raid-Bar-Hp-Fill",
     classic = "Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar",
-    nameplate = "Interface\\AddOns\\Blizzard_NamePlates\\UI-NamePlate-Fill",
 }
 
 local FONT_PRESETS = {
@@ -76,7 +73,7 @@ local FONT_PRESETS = {
 }
 
 local DEFAULTS = {
-    point = { anchor = "center", x = 0, y = -220 },
+    point = { anchor = "CENTER", relativePoint = "CENTER", x = 0, y = -200 },
     width = 260,
     height = 18,
     scale = 1,
@@ -97,14 +94,12 @@ local DEFAULTS = {
         [2] = DEFAULT_STAGE_LABELS[2],
         [3] = DEFAULT_STAGE_LABELS[3],
         [4] = DEFAULT_STAGE_LABELS[4],
-        [5] = DEFAULT_STAGE_LABELS[5],
     },
     stageSounds = {
-        [1] = nil, -- IDLE_SOUND_PATH,
-        [2] = ALERT_SOUND_PATH,
-        [3] = AMBUSH_SOUND_PATH,
-        [4] = TORMENT_SOUND_PATH,
-        [5] = KILL_SOUND_PATH,
+        [1] = ALERT_SOUND_PATH,
+        [2] = AMBUSH_SOUND_PATH,
+        [3] = TORMENT_SOUND_PATH,
+        [4] = KILL_SOUND_PATH,
     },
     soundsEnabled = true,
     soundChannel = "SFX",
@@ -112,7 +107,7 @@ local DEFAULTS = {
     debugSounds = true,
     showTicks = true,
     percentDisplay = PERCENT_DISPLAY_INSIDE,
-    percentFallbackMode = PERCENT_FALLBACK_STRICT,
+    percentFallbackMode = PERCENT_FALLBACK_STAGE,
 }
 
 local settings
@@ -125,11 +120,13 @@ local barFillContainer
 local barFill
 local barText
 local stageText
+local barBorder
 local barTickMarks = {}
 local barTickLabels = {}
 local optionsPanel
 local candidateWidgetSetIDs = {}
 local ExtractWidgetQuestID
+local colorPickerSessionCounter = 0
 local state = {
     activeQuestID = nil,
     progressState = nil,
@@ -178,12 +175,20 @@ local function Clamp(value, minValue, maxValue)
     return math.max(minValue, math.min(maxValue, value))
 end
 
+local function Round(value)
+    if value >= 0 then
+        return math.floor(value + 0.5)
+    end
+
+    return math.ceil(value - 0.5)
+end
+
 local function NormalizeLabelSettings()
     if type(settings.stageLabels) ~= "table" then
         settings.stageLabels = {}
     end
 
-    for stage = 1, 5 do
+    for stage = 1, MAX_STAGE do
         local label = settings.stageLabels[stage]
         if type(label) ~= "string" or label == "" then
             local legacy = settings.stageLabels[tostring(stage)]
@@ -235,10 +240,7 @@ local function NormalizeDisplaySettings()
 
     settings.percentDisplay = mode
 
-    local fallbackMode = settings.percentFallbackMode
-    if fallbackMode ~= PERCENT_FALLBACK_STRICT and fallbackMode ~= PERCENT_FALLBACK_STAGE then
-        settings.percentFallbackMode = PERCENT_FALLBACK_STRICT
-    end
+    settings.percentFallbackMode = PERCENT_FALLBACK_STAGE
 end
 
 local function GetPreyZoneInfo(questID)
@@ -297,16 +299,16 @@ local function IsPlayerInPreyZone(preyMapID)
 end
 
 local function GetDefaultStageSoundPath(stage)
-    if stage == 2 then
+    if stage == 1 then
         return ALERT_SOUND_PATH
     end
-    if stage == 3 then
+    if stage == 2 then
         return AMBUSH_SOUND_PATH
     end
-    if stage == 4 then
+    if stage == 3 then
         return TORMENT_SOUND_PATH
     end
-    if stage == 5 then
+    if stage == 4 then
         return KILL_SOUND_PATH
     end
 
@@ -471,16 +473,16 @@ local function TryPlayStageSound(stage, ignoreSoundToggle)
         return true
     end
 
-    if stage == 5 then
-        local fallbackPath = ResolveStageSoundPath(4)
+    if stage == MAX_STAGE then
+        local fallbackPath = ResolveStageSoundPath(MAX_STAGE - 1)
         if fallbackPath then
-            AddDebugLog("TryPlayStageSound", "stage=5 | primary failed, trying fallback stage=4 | path=" .. tostring(fallbackPath), true)
+            AddDebugLog("TryPlayStageSound", "stage=" .. tostring(MAX_STAGE) .. " | primary failed, trying fallback stage=" .. tostring(MAX_STAGE - 1) .. " | path=" .. tostring(fallbackPath), true)
             if TryPlaySound(fallbackPath, ignoreSoundToggle) then
                 state.stageSoundPlayed[stage] = true
-                AddDebugLog("TryPlayStageSound", "stage=5 | fallback stage=4 success", true)
+                AddDebugLog("TryPlayStageSound", "stage=" .. tostring(MAX_STAGE) .. " | fallback stage=" .. tostring(MAX_STAGE - 1) .. " success", true)
                 return true
             end
-            AddDebugLog("TryPlayStageSound", "stage=5 | fallback stage=4 also failed", true)
+            AddDebugLog("TryPlayStageSound", "stage=" .. tostring(MAX_STAGE) .. " | fallback stage=" .. tostring(MAX_STAGE - 1) .. " also failed", true)
         end
     end
 
@@ -495,20 +497,45 @@ local function ApplyBarSettings()
         return
     end
 
+    settings.point = settings.point or {}
     local point = settings.point
+    local anchor = string.upper(tostring(point.anchor or DEFAULTS.point.anchor))
+    local relativePoint = string.upper(tostring(point.relativePoint or DEFAULTS.point.relativePoint))
+    local frameScale = Clamp(tonumber(settings.scale) or DEFAULTS.scale, 0.5, 2)
+    local scaledWidth = math.max(160, Round((tonumber(settings.width) or DEFAULTS.width) * frameScale))
+    local scaledHeight = math.max(10, Round((tonumber(settings.height) or DEFAULTS.height) * frameScale))
+    if anchor ~= "CENTER" then
+        anchor = "CENTER"
+    end
+
+    if relativePoint ~= "CENTER" then
+        relativePoint = "CENTER"
+    end
+
+    point.x = Round(tonumber(point.x) or DEFAULTS.point.x)
+    point.y = Round(tonumber(point.y) or DEFAULTS.point.y)
+    point.anchor = anchor
+    point.relativePoint = relativePoint
+
+    settings.scale = frameScale
+
+    barFrame:SetSize(scaledWidth, scaledHeight)
+    barFrame:SetScale(1)
     barFrame:ClearAllPoints()
-    barFrame:SetPoint(point.anchor, UIParent, point.anchor, point.x, point.y)
-    barFrame:SetSize(settings.width, settings.height)
-    barFrame:SetScale(settings.scale)
+    barFrame:SetPoint("CENTER", UIParent, "CENTER", point.x, point.y)
 
     if barFill then
         local fill = settings.fillColor
         barFill:ClearAllPoints()
         barFill:SetPoint("left", barFrame, "left", 0, 0)
-        barFill:SetSize(0, settings.height)
+        barFill:SetSize(0, scaledHeight)
         barFill:SetTexture(TEXTURE_PRESETS[settings.textureKey] or TEXTURE_PRESETS.default)
         barFill:SetVertexColor(fill[1], fill[2], fill[3], fill[4])
         barFill:SetDrawLayer("ARTWORK", 0)
+
+        if barBorder and barBorder.SetBackdropBorderColor then
+            barBorder:SetBackdropBorderColor(fill[1], fill[2], fill[3], math.max(0.65, fill[4] or 0.85))
+        end
     end
 
     if barFrame.BackgroundTexture then
@@ -519,7 +546,7 @@ local function ApplyBarSettings()
     if stageText then
         local _, _, flags = stageText:GetFont()
         local titleFont = FONT_PRESETS[settings.titleFontKey] or FONT_PRESETS.frizqt
-        stageText:SetFont(titleFont, settings.fontSize, flags)
+        stageText:SetFont(titleFont, math.max(8, Round((tonumber(settings.fontSize) or DEFAULTS.fontSize) * frameScale)), flags)
         local titleColor = settings.titleColor or DEFAULTS.titleColor
         stageText:SetTextColor(titleColor[1], titleColor[2], titleColor[3], titleColor[4] or 1)
     end
@@ -527,7 +554,7 @@ local function ApplyBarSettings()
     if barText then
         local _, _, flags = barText:GetFont()
         local percentFont = FONT_PRESETS[settings.percentFontKey] or FONT_PRESETS.frizqt
-        barText:SetFont(percentFont, math.max(8, settings.fontSize - 1), flags)
+        barText:SetFont(percentFont, math.max(8, Round(((tonumber(settings.fontSize) or DEFAULTS.fontSize) - 1) * frameScale)), flags)
         local percentColor = settings.percentColor or DEFAULTS.percentColor
         barText:SetTextColor(percentColor[1], percentColor[2], percentColor[3], percentColor[4] or 1)
         barText:SetDrawLayer("OVERLAY", 7)
@@ -537,7 +564,7 @@ local function ApplyBarSettings()
         if tickLabel then
             local _, _, flags = tickLabel:GetFont()
             local percentFont = FONT_PRESETS[settings.percentFontKey] or FONT_PRESETS.frizqt
-            tickLabel:SetFont(percentFont, math.max(7, settings.fontSize - 4), flags)
+            tickLabel:SetFont(percentFont, math.max(7, Round(((tonumber(settings.fontSize) or DEFAULTS.fontSize) - 4) * frameScale)), flags)
             local percentColor = settings.percentColor or DEFAULTS.percentColor
             tickLabel:SetTextColor(percentColor[1], percentColor[2], percentColor[3], 0.9)
         end
@@ -550,19 +577,21 @@ local function ApplyBarSettings()
         end
     end
 
-    local barWidth = settings.width
-    local barHeight = settings.height
+    local barWidth = scaledWidth
+    local barHeight = scaledHeight
+    local tickWidth = 1
     for index, pct in ipairs(BAR_TICK_PCTS) do
         local x = math.floor((barWidth * (pct / 100)) + 0.5)
+        x = math.floor((x / tickWidth) + 0.5) * tickWidth
         local tickMark = barTickMarks[index]
         if tickMark then
             tickMark:ClearAllPoints()
             if pct == 100 then
-                tickMark:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", barWidth - 1, 0)
+                tickMark:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", barWidth - tickWidth, 0)
             else
                 tickMark:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", x, 0)
             end
-            tickMark:SetSize(1, barHeight)
+            tickMark:SetSize(tickWidth, barHeight)
         end
 
         local tickLabel = barTickLabels[index]
@@ -612,9 +641,9 @@ local function EnsureBar()
     end
 
     createdBar:SetSize(260, 18)
-    createdBar:SetPoint("center", UIParent, "center", 0, -220)
+    createdBar:SetPoint("CENTER", UIParent, "CENTER", 0, -220)
     createdBar:Hide()
-    createdBar:SetClampedToScreen(true)
+    createdBar:SetClampedToScreen(false)
     barFrame = createdBar
 
     barFrame:SetScript("OnMouseDown", function(self, button)
@@ -625,10 +654,20 @@ local function EnsureBar()
 
     barFrame:SetScript("OnMouseUp", function(self)
         self:StopMovingOrSizing()
+        settings.point.anchor = "CENTER"
+        settings.point.relativePoint = "CENTER"
+
+        local frameCenterX, frameCenterY = self:GetCenter()
+        local parentCenterX, parentCenterY = UIParent:GetCenter()
+        if frameCenterX and frameCenterY and parentCenterX and parentCenterY then
+            settings.point.x = Round(frameCenterX - parentCenterX)
+            settings.point.y = Round(frameCenterY - parentCenterY)
+            return
+        end
+
         local _, _, _, x, y = self:GetPoint(1)
-        settings.point.anchor = "center"
-        settings.point.x = math.floor(x + 0.5)
-        settings.point.y = math.floor(y + 0.5)
+        settings.point.x = Round(tonumber(x) or DEFAULTS.point.x)
+        settings.point.y = Round(tonumber(y) or DEFAULTS.point.y)
     end)
 
     local bg = barFrame:CreateTexture(nil, "background")
@@ -656,6 +695,7 @@ local function EnsureBar()
         insets = { left = 2, right = 2, top = 2, bottom = 2 },
     })
     border:SetBackdropBorderColor(0.8, 0.2, 0.2, 0.85)
+    barBorder = border
 
     stageText = barFrame:CreateFontString(nil, "overlay", "GameFontNormal")
     stageText:SetPoint("BOTTOM", barFrame, "TOP", 0, 4)
@@ -688,19 +728,19 @@ local function GetStageFromState(progressState)
     end
 
     if progressState == 0 then
-        return 2
+        return 1
     end
 
     if progressState == 1 then
-        return 3
+        return 2
     end
 
     if progressState == 2 then
-        return 4
+        return 3
     end
 
     if progressState == PREY_PROGRESS_FINAL then
-        return 5
+        return 4
     end
 
     return 1
@@ -951,7 +991,7 @@ local function UpdateBarDisplay()
 
     barFrame:Show()
 
-    local stage = forceKillStage and 5 or GetStageFromState(state.progressState)
+    local stage = forceKillStage and MAX_STAGE or GetStageFromState(state.progressState)
     local pct = 0
     local displayReason = "default"
     local isOutOfPreyZone = hasActiveQuest and state.inPreyZone ~= true
@@ -965,31 +1005,26 @@ local function UpdateBarDisplay()
         pct = 0
         displayReason = "outOfPreyZone"
     else
-        if stage == 5 and state.progressPercent == nil then
+        if stage == MAX_STAGE then
             pct = 100
             if state.lastPercentSource == "none" then
                 state.lastPercentSource = "final"
             end
         else
             pct = state.progressPercent
-            local shouldUseStageFallback = (pct == nil)
-                or (settings.percentFallbackMode == PERCENT_FALLBACK_STAGE and stage > 1 and pct <= 0)
+            local shouldUseStageFallback = (pct == nil) or (stage >= 1 and pct <= 0)
 
             if shouldUseStageFallback then
-                if settings.percentFallbackMode == PERCENT_FALLBACK_STAGE then
-                    pct = STAGE_PCT[stage] or 0
-                    if state.lastPercentSource == "none" then
-                        state.lastPercentSource = "stage"
-                    end
-                else
-                    pct = 0
+                pct = STAGE_PCT[stage] or 0
+                if state.lastPercentSource == "none" then
+                    state.lastPercentSource = "stage"
                 end
             end
         end
         displayReason = "activeQuest"
     end
     local label = GetStageLabel(stage)
-    local barWidth = settings.width
+    local barWidth = (barFrame and barFrame.GetWidth and barFrame:GetWidth()) or settings.width
 
     if barFill then
         local width = barWidth * (pct / 100)
@@ -1107,7 +1142,7 @@ end
 
 local function BuildStageSoundPlayedSummary()
     local parts = {}
-    for stage = 1, 5 do
+    for stage = 1, MAX_STAGE do
         parts[#parts + 1] = tostring(stage) .. "=" .. tostring(state.stageSoundPlayed and state.stageSoundPlayed[stage] == true)
     end
     return table.concat(parts, ", ")
@@ -1124,6 +1159,56 @@ local function TrimText(value, maxLen)
     end
 
     return string.sub(value, 1, maxLen - 3) .. "..."
+end
+
+local function NormalizeSoundSettings()
+    if type(settings.stageSounds) ~= "table" then
+        settings.stageSounds = {}
+    end
+
+    for stage = 1, MAX_STAGE do
+        local configuredPath = settings.stageSounds[stage]
+        if type(configuredPath) ~= "string" or configuredPath == "" then
+            local legacyPath = settings.stageSounds[tostring(stage)]
+            if type(legacyPath) == "string" and legacyPath ~= "" then
+                configuredPath = legacyPath
+            end
+        end
+
+        if type(configuredPath) == "string" and string.find(string.lower(configuredPath), "predator%-idle%.ogg", 1, false) then
+            configuredPath = nil
+        end
+
+        if type(configuredPath) ~= "string" or configuredPath == "" then
+            configuredPath = GetDefaultStageSoundPath(stage)
+        end
+
+        settings.stageSounds[stage] = configuredPath
+    end
+
+    settings.stageSounds[5] = nil
+end
+
+local function ResetAllSettings()
+    for key in pairs(settings) do
+        settings[key] = nil
+    end
+
+    ApplyDefaults(settings, DEFAULTS)
+    NormalizeLabelSettings()
+    NormalizeColorSettings()
+    NormalizeDisplaySettings()
+    NormalizeSoundSettings()
+
+    state.forceShowBar = settings.forceShowBar
+    state.stageSoundPlayed = {}
+
+    ApplyBarSettings()
+    UpdateBarDisplay()
+
+    if optionsPanel and optionsPanel.PreydatorRefreshControls then
+        optionsPanel.PreydatorRefreshControls()
+    end
 end
 
 local function PrintInspectState()
@@ -1191,6 +1276,44 @@ local function PrintInspectState()
         .. " | frameWidth=" .. string.format("%.2f", frameWidth)
         .. " | fillWidth=" .. string.format("%.2f", fillWidth)
         .. " | fillPct=" .. string.format("%.2f", fillPct))
+
+    local savedPoint = settings and settings.point or {}
+    print("- point saved="
+        .. " anchor=" .. tostring(savedPoint.anchor)
+        .. " rel=" .. tostring(savedPoint.relativePoint)
+        .. " x=" .. tostring(savedPoint.x)
+        .. " y=" .. tostring(savedPoint.y))
+
+    local livePoint, liveRelativeTo, liveRelativePoint, liveX, liveY = nil, nil, nil, nil, nil
+    if barFrame and barFrame.GetPoint then
+        livePoint, liveRelativeTo, liveRelativePoint, liveX, liveY = barFrame:GetPoint(1)
+    end
+    local liveRelativeName = "nil"
+    if liveRelativeTo == UIParent then
+        liveRelativeName = "UIParent"
+    elseif liveRelativeTo ~= nil then
+        liveRelativeName = tostring(liveRelativeTo)
+    end
+    print("- point live="
+        .. " anchor=" .. tostring(livePoint)
+        .. " relTo=" .. tostring(liveRelativeName)
+        .. " rel=" .. tostring(liveRelativePoint)
+        .. " x=" .. tostring(liveX)
+        .. " y=" .. tostring(liveY))
+
+    local frameScale = barFrame and barFrame.GetScale and barFrame:GetScale() or 1
+    local frameEffectiveScale = barFrame and barFrame.GetEffectiveScale and barFrame:GetEffectiveScale() or 1
+    local frameCenterX = barFrame and barFrame.GetCenter and select(1, barFrame:GetCenter()) or nil
+    local frameCenterY = barFrame and barFrame.GetCenter and select(2, barFrame:GetCenter()) or nil
+    local parentCenterX = UIParent and UIParent.GetCenter and select(1, UIParent:GetCenter()) or nil
+    local parentCenterY = UIParent and UIParent.GetCenter and select(2, UIParent:GetCenter()) or nil
+    local centerDX = (frameCenterX and parentCenterX) and (frameCenterX - parentCenterX) or nil
+    local centerDY = (frameCenterY and parentCenterY) and (frameCenterY - parentCenterY) or nil
+    print("- frame scale=" .. tostring(frameScale)
+        .. " | effectiveScale=" .. tostring(frameEffectiveScale)
+        .. " | centerDX=" .. tostring(centerDX)
+        .. " | centerDY=" .. tostring(centerDY))
+
     print("- frame local=" .. tostring(barFrame) .. " | frame global=" .. tostring(_G.PreydatorProgressBar)
         .. " | same=" .. tostring(barFrame ~= nil and _G.PreydatorProgressBar ~= nil and barFrame == _G.PreydatorProgressBar))
 
@@ -1378,12 +1501,12 @@ local function UpdatePreyState()
         return
     end
 
-    if state.stageSoundPlayed[5] then
+    if state.stageSoundPlayed[MAX_STAGE] then
         UpdateBarDisplay()
         return
     end
 
-    TryPlayStageSound(5)
+    TryPlayStageSound(MAX_STAGE)
 
     UpdateBarDisplay()
 end
@@ -1395,35 +1518,11 @@ local function OnAddonLoaded()
     EnsureDebugDB()
     debugDB.enabled = settings.debugSounds and true or false
 
-    if type(settings.stageSounds) ~= "table" then
-        settings.stageSounds = {}
-    end
-
-    for stage = 2, 5 do
-        local configuredPath = settings.stageSounds[stage]
-        if type(configuredPath) ~= "string" or configuredPath == "" then
-            local legacyPath = settings.stageSounds[tostring(stage)]
-            if type(legacyPath) == "string" and legacyPath ~= "" then
-                configuredPath = legacyPath
-            end
-        end
-
-        if type(configuredPath) == "string" and string.find(string.lower(configuredPath), "predator%-idle%.ogg", 1, false) then
-            configuredPath = nil
-        end
-
-        if type(configuredPath) ~= "string" or configuredPath == "" then
-            configuredPath = GetDefaultStageSoundPath(stage)
-        end
-
-        settings.stageSounds[stage] = configuredPath
-    end
-
-    settings.stageSounds[1] = nil
+    NormalizeSoundSettings()
     NormalizeLabelSettings()
     NormalizeColorSettings()
     NormalizeDisplaySettings()
-    AddDebugLog("OnAddonLoaded", "debug=" .. tostring(debugDB.enabled) .. " | stage5=" .. tostring(settings.stageSounds[5]), true)
+    AddDebugLog("OnAddonLoaded", "debug=" .. tostring(debugDB.enabled) .. " | stage" .. tostring(MAX_STAGE) .. "=" .. tostring(settings.stageSounds[MAX_STAGE]), true)
 
     state.forceShowBar = settings.forceShowBar
 
@@ -1493,6 +1592,7 @@ local function AddDropdown(parent, label, x, y, width, options, getter, setter)
         end
     end)
 
+    dropdown.PreydatorRefreshText = RefreshText
     RefreshText()
     return dropdown
 end
@@ -1542,10 +1642,36 @@ local function AddColorSwatch(parent, x, y, getter, setter, allowAlpha)
         return { r, g, b, a }
     end
 
+    local function GetPickerColor(defaultA)
+        local r, g, b
+        if ColorPickerFrame.GetColorRGB then
+            r, g, b = ColorPickerFrame:GetColorRGB()
+        elseif ColorPickerFrame.Content and ColorPickerFrame.Content.ColorPicker and ColorPickerFrame.Content.ColorPicker.GetColorRGB then
+            r, g, b = ColorPickerFrame.Content.ColorPicker:GetColorRGB()
+        else
+            r, g, b = 1, 1, 1
+        end
+
+        local a = defaultA
+        if allowAlpha then
+            if ColorPickerFrame.GetColorAlpha then
+                a = ColorPickerFrame:GetColorAlpha()
+            elseif OpacitySliderFrame and OpacitySliderFrame.GetValue then
+                a = 1 - OpacitySliderFrame:GetValue()
+            end
+        end
+
+        return r, g, b, a
+    end
+
     button:SetScript("OnClick", function()
         if not ColorPickerFrame then
             return
         end
+
+        colorPickerSessionCounter = colorPickerSessionCounter + 1
+        local sessionID = colorPickerSessionCounter
+        ColorPickerFrame.preydatorSessionID = sessionID
 
         local start = getter()
         local startColor = {
@@ -1556,28 +1682,53 @@ local function AddColorSwatch(parent, x, y, getter, setter, allowAlpha)
         }
 
         local function ApplyColor()
-            local r, g, b
-            if ColorPickerFrame.GetColorRGB then
-                r, g, b = ColorPickerFrame:GetColorRGB()
-            elseif ColorPickerFrame.Content and ColorPickerFrame.Content.ColorPicker and ColorPickerFrame.Content.ColorPicker.GetColorRGB then
-                r, g, b = ColorPickerFrame.Content.ColorPicker:GetColorRGB()
-            else
-                r, g, b = startColor[1], startColor[2], startColor[3]
+            if ColorPickerFrame.preydatorSessionID ~= sessionID then
+                return
             end
-            local a = startColor[4]
-            if allowAlpha and OpacitySliderFrame and OpacitySliderFrame.GetValue then
-                a = 1 - OpacitySliderFrame:GetValue()
-            end
+
+            local r, g, b, a = GetPickerColor(startColor[4])
+
             setter(NormalizeColorInput({ r, g, b, a }, startColor))
             Refresh()
         end
 
         local function CancelColor(previousValues)
-            if type(previousValues) ~= "table" then
-                previousValues = startColor
+            if ColorPickerFrame.preydatorSessionID ~= sessionID then
+                return
             end
-            setter(NormalizeColorInput(previousValues, startColor))
+
+            local pr, pg, pb, pa = nil, nil, nil, nil
+            if type(previousValues) == "table" then
+                pr = previousValues.r or previousValues[1]
+                pg = previousValues.g or previousValues[2]
+                pb = previousValues.b or previousValues[3]
+                pa = previousValues.a or previousValues[4]
+            elseif ColorPickerFrame.GetPreviousValues then
+                pr, pg, pb, pa = ColorPickerFrame:GetPreviousValues()
+            end
+
+            if pr == nil or pg == nil or pb == nil then
+                pr, pg, pb, pa = startColor[1], startColor[2], startColor[3], startColor[4]
+            end
+
+            setter(NormalizeColorInput({ pr, pg, pb, pa }, startColor))
             Refresh()
+        end
+
+        if ColorPickerFrame.SetupColorPickerAndShow then
+            local info = {
+                r = startColor[1],
+                g = startColor[2],
+                b = startColor[3],
+                opacity = allowAlpha and startColor[4] or 0,
+                hasOpacity = allowAlpha and true or false,
+                func = ApplyColor,
+                swatchFunc = ApplyColor,
+                opacityFunc = ApplyColor,
+                cancelFunc = CancelColor,
+            }
+            ColorPickerFrame:SetupColorPickerAndShow(info)
+            return
         end
 
         ColorPickerFrame.hasOpacity = allowAlpha and true or false
@@ -1597,6 +1748,7 @@ local function AddColorSwatch(parent, x, y, getter, setter, allowAlpha)
         ColorPickerFrame:Show()
     end)
 
+    button.PreydatorRefresh = Refresh
     Refresh()
     return button
 end
@@ -1622,34 +1774,34 @@ local function EnsureOptionsPanel()
     subtitle:SetJustifyH("LEFT")
     subtitle:SetWordWrap(true)
 
-    AddCheckbox(panel, "Lock Bar", 20, -50, function() return settings.locked end, function(value)
+    local lockCheckbox = AddCheckbox(panel, "Lock Bar", 20, -50, function() return settings.locked end, function(value)
         settings.locked = value
         ApplyBarSettings()
     end)
 
-    AddCheckbox(panel, "Show when no active prey", 20, -80, function() return settings.showWhenNoPrey end, function(value)
+    local showNoPreyCheckbox = AddCheckbox(panel, "Show when no active prey", 20, -80, function() return settings.showWhenNoPrey end, function(value)
         settings.showWhenNoPrey = value
         UpdateBarDisplay()
     end)
 
-    AddSlider(panel, "Scale", 20, -130, 0.5, 2, 0.05, function() return settings.scale end, function(value)
+    local scaleSlider = AddSlider(panel, "Scale", 20, -130, 0.5, 2, 0.05, function() return settings.scale end, function(value)
         settings.scale = Clamp(value, 0.5, 2)
         ApplyBarSettings()
     end)
 
-    AddSlider(panel, "Width", 20, -190, 160, 500, 1, function() return settings.width end, function(value)
+    local widthSlider = AddSlider(panel, "Width", 20, -190, 160, 500, 1, function() return settings.width end, function(value)
         settings.width = Clamp(math.floor(value + 0.5), 160, 500)
         ApplyBarSettings()
         UpdateBarDisplay()
     end)
 
-    AddSlider(panel, "Height", 20, -250, 10, 40, 1, function() return settings.height end, function(value)
+    local heightSlider = AddSlider(panel, "Height", 20, -250, 10, 40, 1, function() return settings.height end, function(value)
         settings.height = Clamp(math.floor(value + 0.5), 10, 40)
         ApplyBarSettings()
         UpdateBarDisplay()
     end)
 
-    AddSlider(panel, "Font Size", 20, -310, 8, 24, 1, function() return settings.fontSize end, function(value)
+    local fontSizeSlider = AddSlider(panel, "Font Size", 20, -310, 8, 24, 1, function() return settings.fontSize end, function(value)
         settings.fontSize = Clamp(math.floor(value + 0.5), 8, 24)
         ApplyBarSettings()
     end)
@@ -1659,7 +1811,7 @@ local function EnsureOptionsPanel()
     stageNamesTitle:SetText("Stage Names")
 
     local stageNameEdits = {}
-    for stageIndex = 1, 5 do
+    for stageIndex = 1, MAX_STAGE do
         local rowY = -360 - (stageIndex * 26)
         local label = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         label:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, rowY)
@@ -1687,7 +1839,7 @@ local function EnsureOptionsPanel()
         stageNameEdits[stageIndex] = edit
     end
 
-    local outZoneRowY = -360 - (6 * 26)
+    local outZoneRowY = -360 - ((MAX_STAGE + 1) * 26)
     local outZoneLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     outZoneLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, outZoneRowY)
     outZoneLabel:SetText("Out:")
@@ -1714,10 +1866,10 @@ local function EnsureOptionsPanel()
 
     local restoreNamesButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     restoreNamesButton:SetSize(180, 24)
-    restoreNamesButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 40, -548)
+    restoreNamesButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 40, -522)
     restoreNamesButton:SetText("Restore Default Names")
     restoreNamesButton:SetScript("OnClick", function()
-        for stageIndex = 1, 5 do
+        for stageIndex = 1, MAX_STAGE do
             settings.stageLabels[stageIndex] = DEFAULT_STAGE_LABELS[stageIndex]
             stageNameEdits[stageIndex]:SetText(DEFAULT_STAGE_LABELS[stageIndex])
         end
@@ -1726,12 +1878,22 @@ local function EnsureOptionsPanel()
         UpdateBarDisplay()
     end)
 
+    local resetAllButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    resetAllButton:SetSize(180, 24)
+    resetAllButton:SetPoint("TOPLEFT", restoreNamesButton, "BOTTOMLEFT", 0, -6)
+    resetAllButton:SetText("Reset All Defaults")
+    resetAllButton:SetScript("OnClick", function()
+        ResetAllSettings()
+        if panel.PreydatorRefreshControls then
+            panel.PreydatorRefreshControls()
+        end
+    end)
+
     panel:SetScript("OnShow", function()
         NormalizeLabelSettings()
-        for stageIndex = 1, 5 do
-            stageNameEdits[stageIndex]:SetText(settings.stageLabels[stageIndex])
+        if panel.PreydatorRefreshControls then
+            panel.PreydatorRefreshControls()
         end
-        outZoneEdit:SetText(settings.outOfZoneLabel)
     end)
 
     local textureOptions = {
@@ -1739,7 +1901,6 @@ local function EnsureOptionsPanel()
         flat = { text = "Flat" },
         raid = { text = "Raid HP Fill" },
         classic = { text = "Classic Skill Bar" },
-        nameplate = { text = "Nameplate Fill" },
     }
 
     local fontOptions = {
@@ -1763,26 +1924,26 @@ local function EnsureOptionsPanel()
         [PERCENT_DISPLAY_OFF] = { text = "Off" },
     }
 
-    AddDropdown(panel, "Texture", 320, -130, 170, textureOptions, function()
+    local textureDropdown = AddDropdown(panel, "Texture", 320, -130, 170, textureOptions, function()
         return settings.textureKey
     end, function(key)
         settings.textureKey = key
         ApplyBarSettings()
     end)
-    AddColorSwatch(panel, 530, -150, function()
+    local fillColorSwatch = AddColorSwatch(panel, 530, -150, function()
         return settings.fillColor
     end, function(color)
         settings.fillColor = { color[1], color[2], color[3], color[4] }
         ApplyBarSettings()
     end, true)
 
-    AddDropdown(panel, "Title Font", 320, -185, 170, fontOptions, function()
+    local titleFontDropdown = AddDropdown(panel, "Title Font", 320, -185, 170, fontOptions, function()
         return settings.titleFontKey
     end, function(key)
         settings.titleFontKey = key
         ApplyBarSettings()
     end)
-    AddColorSwatch(panel, 530, -200, function()
+    local titleColorSwatch = AddColorSwatch(panel, 530, -203, function()
         return settings.titleColor
     end, function(color)
         settings.titleColor = { color[1], color[2], color[3], color[4] }
@@ -1790,13 +1951,13 @@ local function EnsureOptionsPanel()
         UpdateBarDisplay()
     end, true)
 
-    AddDropdown(panel, "Percent Font", 320, -232, 170, fontOptions, function()
+    local percentFontDropdown = AddDropdown(panel, "Percent Font", 320, -232, 170, fontOptions, function()
         return settings.percentFontKey
     end, function(key)
         settings.percentFontKey = key
         ApplyBarSettings()
     end)
-    AddColorSwatch(panel, 530, -260, function()
+    local percentColorSwatch = AddColorSwatch(panel, 530, -253, function()
         return settings.percentColor
     end, function(color)
         settings.percentColor = { color[1], color[2], color[3], color[4] }
@@ -1804,29 +1965,29 @@ local function EnsureOptionsPanel()
         UpdateBarDisplay()
     end, true)
 
-    AddCheckbox(panel, "Enable sounds", 320, -360, function() return settings.soundsEnabled end, function(value)
+    local soundsCheckbox = AddCheckbox(panel, "Enable sounds", 320, -360, function() return settings.soundsEnabled end, function(value)
         settings.soundsEnabled = value
     end)
 
-    AddDropdown(panel, "Sound Channel", 320, -295, 170, channelOptions, function()
+    local soundChannelDropdown = AddDropdown(panel, "Sound Channel", 320, -295, 170, channelOptions, function()
         return settings.soundChannel
     end, function(key)
         settings.soundChannel = key
     end)
 
-    AddSlider(panel, "Enhance Sounds", 320, -400, 0, 100, 5, function()
+    local enhanceSlider = AddSlider(panel, "Enhance Sounds", 320, -400, 0, 100, 5, function()
         return settings.soundEnhance or 0
     end, function(value)
         settings.soundEnhance = Clamp(math.floor(value + 0.5), 0, 100)
     end)
 
-    AddCheckbox(panel, "Show tick marks", 320, -50, function() return settings.showTicks end, function(value)
+    local showTicksCheckbox = AddCheckbox(panel, "Show tick marks", 320, -50, function() return settings.showTicks end, function(value)
         settings.showTicks = value
         ApplyBarSettings()
         UpdateBarDisplay()
     end)
 
-    AddDropdown(panel, "Percent Display", 320, -80, 170, percentDisplayOptions, function()
+    local percentDisplayDropdown = AddDropdown(panel, "Percent Display", 320, -80, 170, percentDisplayOptions, function()
         return settings.percentDisplay
     end, function(key)
         settings.percentDisplay = key
@@ -1834,6 +1995,36 @@ local function EnsureOptionsPanel()
         ApplyBarSettings()
         UpdateBarDisplay()
     end)
+
+    local function RefreshOptionsControls()
+        if lockCheckbox then lockCheckbox:SetChecked(settings.locked) end
+        if showNoPreyCheckbox then showNoPreyCheckbox:SetChecked(settings.showWhenNoPrey) end
+        if soundsCheckbox then soundsCheckbox:SetChecked(settings.soundsEnabled) end
+        if showTicksCheckbox then showTicksCheckbox:SetChecked(settings.showTicks) end
+
+        if scaleSlider then scaleSlider:SetValue(settings.scale) end
+        if widthSlider then widthSlider:SetValue(settings.width) end
+        if heightSlider then heightSlider:SetValue(settings.height) end
+        if fontSizeSlider then fontSizeSlider:SetValue(settings.fontSize) end
+        if enhanceSlider then enhanceSlider:SetValue(settings.soundEnhance or 0) end
+
+        if textureDropdown and textureDropdown.PreydatorRefreshText then textureDropdown.PreydatorRefreshText() end
+        if titleFontDropdown and titleFontDropdown.PreydatorRefreshText then titleFontDropdown.PreydatorRefreshText() end
+        if percentFontDropdown and percentFontDropdown.PreydatorRefreshText then percentFontDropdown.PreydatorRefreshText() end
+        if soundChannelDropdown and soundChannelDropdown.PreydatorRefreshText then soundChannelDropdown.PreydatorRefreshText() end
+        if percentDisplayDropdown and percentDisplayDropdown.PreydatorRefreshText then percentDisplayDropdown.PreydatorRefreshText() end
+
+        if fillColorSwatch and fillColorSwatch.PreydatorRefresh then fillColorSwatch.PreydatorRefresh() end
+        if titleColorSwatch and titleColorSwatch.PreydatorRefresh then titleColorSwatch.PreydatorRefresh() end
+        if percentColorSwatch and percentColorSwatch.PreydatorRefresh then percentColorSwatch.PreydatorRefresh() end
+
+        for stageIndex = 1, MAX_STAGE do
+            stageNameEdits[stageIndex]:SetText(settings.stageLabels[stageIndex])
+        end
+        outZoneEdit:SetText(settings.outOfZoneLabel)
+    end
+
+    panel.PreydatorRefreshControls = RefreshOptionsControls
 
     local function AddSoundTestButton(text, x, y, stageIndex)
         local button = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
@@ -1853,10 +2044,10 @@ local function EnsureOptionsPanel()
         end)
     end
 
-    AddSoundTestButton("Test 25%", 320, -430, 2)
-    AddSoundTestButton("Test 50%", 320, -460, 3)
-    AddSoundTestButton("Test 75%", 320, -492, 4)
-    AddSoundTestButton("Test 100%", 320, -522, 5)
+    AddSoundTestButton("Test 25%", 320, -430, 1)
+    AddSoundTestButton("Test 50%", 320, -460, 2)
+    AddSoundTestButton("Test 75%", 320, -492, 3)
+    AddSoundTestButton("Test 100%", 320, -522, 4)
 
     local note = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     note:SetPoint("TOPLEFT", panel, "TOPLEFT", 320, -552)
@@ -1879,38 +2070,6 @@ local function HandleSlashCommand(message)
     local trimmed = (message or ""):match("^%s*(.-)%s*$")
     local command, rest = trimmed:match("^(%S+)%s*(.-)$")
     local text = string.lower(command or "")
-
-    if text == "test" then
-        state.stageSoundPlayed[5] = nil
-        if not ResolveStageSoundPath(5) then
-            AddDebugLog("SlashTest", "stage=5 | ResolveStageSoundPath returned nil", true)
-            print("Preydator: No stage 5 sound configured.")
-            return
-        end
-
-        if TryPlayStageSound(5, true) then
-            print("Preydator: Test stage 5 sound played.")
-        else
-            print("Preydator: Stage 5 sound failed to play. Check file path and channel volume.")
-        end
-        return
-    end
-
-    if text == "testalert" then
-        state.stageSoundPlayed[3] = nil
-        if not ResolveStageSoundPath(3) then
-            AddDebugLog("SlashTest", "stage=3 | ResolveStageSoundPath returned nil", true)
-            print("Preydator: No stage 3 sound configured.")
-            return
-        end
-
-        if TryPlayStageSound(3, true) then
-            print("Preydator: Test stage 3 sound played.")
-        else
-            print("Preydator: Stage 3 sound failed to play. Check file path and channel volume.")
-        end
-        return
-    end
 
     if text == "debug" then
         EnsureDebugDB()
@@ -1960,21 +2119,6 @@ local function HandleSlashCommand(message)
         return
     end
 
-    if text == "fillmode" then
-        local mode = string.lower(rest or "")
-        if mode ~= PERCENT_FALLBACK_STRICT and mode ~= PERCENT_FALLBACK_STAGE then
-            print("Preydator: usage /preydator fillmode <strict|stage>")
-            print("Preydator: current fillmode is " .. tostring(settings.percentFallbackMode))
-            return
-        end
-
-        settings.percentFallbackMode = mode
-        NormalizeDisplaySettings()
-        UpdateBarDisplay()
-        print("Preydator: fillmode set to " .. tostring(settings.percentFallbackMode))
-        return
-    end
-
     if text == "show" then
         state.forceShowBar = true
         settings.forceShowBar = true
@@ -1999,76 +2143,6 @@ local function HandleSlashCommand(message)
         return
     end
 
-    if text == "unlock" then
-        settings.locked = false
-        ApplyBarSettings()
-        print("Preydator: Bar unlocked. Drag with left mouse.")
-        return
-    end
-
-    if text == "lock" then
-        settings.locked = true
-        ApplyBarSettings()
-        print("Preydator: Bar locked.")
-        return
-    end
-
-    if text == "reset" then
-        settings.point.anchor = DEFAULTS.point.anchor
-        settings.point.x = DEFAULTS.point.x
-        settings.point.y = DEFAULTS.point.y
-        settings.textureKey = DEFAULTS.textureKey
-        settings.fillColor = { DEFAULTS.fillColor[1], DEFAULTS.fillColor[2], DEFAULTS.fillColor[3], DEFAULTS.fillColor[4] }
-        settings.bgColor = { DEFAULTS.bgColor[1], DEFAULTS.bgColor[2], DEFAULTS.bgColor[3], DEFAULTS.bgColor[4] }
-        ApplyBarSettings()
-        UpdateBarDisplay()
-        print("Preydator: Bar position and appearance reset.")
-        return
-    end
-
-    if text == "texture" then
-        local key = string.lower(rest or "")
-        if not TEXTURE_PRESETS[key] then
-            print("Preydator: texture options are 'default', 'flat', 'raid', 'classic', 'nameplate'.")
-            return
-        end
-
-        settings.textureKey = key
-        ApplyBarSettings()
-        print("Preydator: Texture set to " .. key)
-        return
-    end
-
-    if text == "color" then
-        local r, g, b = rest:match("^(%S+)%s+(%S+)%s+(%S+)$")
-        r, g, b = tonumber(r), tonumber(g), tonumber(b)
-        if not r or not g or not b then
-            print("Preydator: usage /preydator color <r> <g> <b> (0-1)")
-            return
-        end
-
-        settings.fillColor[1] = math.max(0, math.min(1, r))
-        settings.fillColor[2] = math.max(0, math.min(1, g))
-        settings.fillColor[3] = math.max(0, math.min(1, b))
-        ApplyBarSettings()
-        print("Preydator: Fill color updated.")
-        return
-    end
-
-    if text == "stage" then
-        local stageIndex, newLabel = rest:match("^(%d+)%s+(.+)$")
-        local stageNumber = tonumber(stageIndex)
-        if not stageNumber or stageNumber < 1 or stageNumber > 5 or not newLabel then
-            print("Preydator: usage /preydator stage <1-5> <label>")
-            return
-        end
-
-        settings.stageLabels[stageNumber] = newLabel
-        UpdateBarDisplay()
-        print("Preydator: Stage " .. stageNumber .. " renamed to '" .. newLabel .. "'.")
-        return
-    end
-
     if text == "options" or text == "open" then
         if Settings and Settings.OpenToCategory then
             Settings.OpenToCategory("Preydator")
@@ -2083,7 +2157,7 @@ local function HandleSlashCommand(message)
         return
     end
 
-    print("Preydator commands: options | test | testalert | inspect | fillmode <strict|stage> | show | hide | toggle | unlock | lock | reset | texture <default|flat|raid|classic|nameplate> | color <r g b> | stage <1-5> <label> | mem | debug <on|off|show|clear>")
+    print("Preydator commands: options | inspect | show | hide | toggle | mem | debug <on|off|show|clear>")
 end
 
 frame:SetScript("OnEvent", function(_, event, arg1)
@@ -2108,6 +2182,7 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     if event == "QUEST_TURNED_IN" and state.activeQuestID and arg1 == state.activeQuestID then
         state.killStageUntil = (GetTime and GetTime() or 0) + 8
         state.progressState = PREY_PROGRESS_FINAL
+        state.progressPercent = 100
         UpdateBarDisplay()
     end
 
