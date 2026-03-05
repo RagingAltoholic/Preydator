@@ -39,6 +39,8 @@ local TORMENT_SOUND_PATH = "Interface\\AddOns\\Preydator\\sounds\\predator-torme
 local KILL_SOUND_PATH = "Interface\\AddOns\\Preydator\\sounds\\predator-kill.ogg"
 local DEBUG_LOG_LIMIT = 200
 local DEFAULT_OUT_OF_ZONE_LABEL = "No Sign in These Fields"
+local AMBUSH_CHAT_PATTERN = "ambush"
+local AMBUSH_ALERT_COOLDOWN = 5
 local BAR_TICK_PCTS = { 25, 50, 75 }
 local PERCENT_DISPLAY_INSIDE = "inside"
 local PERCENT_DISPLAY_BELOW_BAR = "below_bar"
@@ -105,6 +107,8 @@ local DEFAULTS = {
     soundChannel = "SFX",
     soundEnhance = 0,
     debugSounds = true,
+    ambushAlertEnabled = true,
+    ambushChatAlert = true,
     showTicks = true,
     percentDisplay = PERCENT_DISPLAY_INSIDE,
     percentFallbackMode = PERCENT_FALLBACK_STAGE,
@@ -147,6 +151,7 @@ local state = {
     lastDisplayPct = 0,
     lastDisplayReason = "init",
     lastPercentSource = "none",
+    lastAmbushAlertTime = 0,
 }
 
 local UPDATE_INTERVAL_SECONDS = 0.5
@@ -1544,6 +1549,31 @@ local function UpdatePreyState()
     UpdateBarDisplay()
 end
 
+local function OnAmbushSystemMessage(message)
+    if not settings or not settings.ambushAlertEnabled then
+        return
+    end
+
+    if type(message) ~= "string" or not string.find(string.lower(message), AMBUSH_CHAT_PATTERN, 1, true) then
+        return
+    end
+
+    local now = GetTime and GetTime() or 0
+    if (now - (state.lastAmbushAlertTime or 0)) < AMBUSH_ALERT_COOLDOWN then
+        AddDebugLog("OnAmbushSystemMessage", "cooldown active, skipping | msg=" .. message, false)
+        return
+    end
+
+    state.lastAmbushAlertTime = now
+    AddDebugLog("OnAmbushSystemMessage", "ambush detected | msg=" .. message, false)
+
+    TryPlaySound(AMBUSH_SOUND_PATH, false)
+
+    if settings.ambushChatAlert then
+        print("|cffff4444Preydator:|r Ambush detected!")
+    end
+end
+
 local function OnAddonLoaded()
     _G.PreydatorDB = _G.PreydatorDB or {}
     settings = _G.PreydatorDB
@@ -1567,6 +1597,7 @@ local function OnAddonLoaded()
     frame:RegisterEvent("ZONE_CHANGED")
     frame:RegisterEvent("ZONE_CHANGED_INDOORS")
     frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    frame:RegisterEvent("CHAT_MSG_SYSTEM")
 end
 
 local function AddCheckbox(parent, label, x, y, getter, setter)
@@ -2002,13 +2033,21 @@ EnsureOptionsPanel = function()
         settings.soundsEnabled = value
     end)
 
+    local ambushAlertCheckbox = AddCheckbox(panel, "Ambush sound alert", 320, -385, function() return settings.ambushAlertEnabled end, function(value)
+        settings.ambushAlertEnabled = value
+    end)
+
+    local ambushChatCheckbox = AddCheckbox(panel, "Ambush chat message", 320, -407, function() return settings.ambushChatAlert end, function(value)
+        settings.ambushChatAlert = value
+    end)
+
     local soundChannelDropdown = AddDropdown(panel, "Sound Channel", 320, -295, 170, channelOptions, function()
         return settings.soundChannel
     end, function(key)
         settings.soundChannel = key
     end)
 
-    local enhanceSlider = AddSlider(panel, "Enhance Sounds", 320, -400, 0, 100, 5, function()
+    local enhanceSlider = AddSlider(panel, "Enhance Sounds", 320, -430, 0, 100, 5, function()
         return settings.soundEnhance or 0
     end, function(value)
         settings.soundEnhance = Clamp(math.floor(value + 0.5), 0, 100)
@@ -2033,6 +2072,8 @@ EnsureOptionsPanel = function()
         if lockCheckbox then lockCheckbox:SetChecked(settings.locked) end
         if onlyShowInPreyZoneCheckbox then onlyShowInPreyZoneCheckbox:SetChecked(settings.onlyShowInPreyZone) end
         if soundsCheckbox then soundsCheckbox:SetChecked(settings.soundsEnabled) end
+        if ambushAlertCheckbox then ambushAlertCheckbox:SetChecked(settings.ambushAlertEnabled) end
+        if ambushChatCheckbox then ambushChatCheckbox:SetChecked(settings.ambushChatAlert) end
         if showTicksCheckbox then showTicksCheckbox:SetChecked(settings.showTicks) end
 
         if scaleSlider then scaleSlider:SetValue(settings.scale) end
@@ -2077,17 +2118,25 @@ EnsureOptionsPanel = function()
         end)
     end
 
-    AddSoundTestButton("Test 25%", 320, -430, 1)
-    AddSoundTestButton("Test 50%", 320, -460, 2)
-    AddSoundTestButton("Test 75%", 320, -492, 3)
-    AddSoundTestButton("Test 100%", 320, -522, 4)
+    AddSoundTestButton("Test 25%", 320, -460, 1)
+    AddSoundTestButton("Test 50%", 320, -490, 2)
+    AddSoundTestButton("Test 75%", 320, -522, 3)
+    AddSoundTestButton("Test 100%", 320, -552, 4)
+
+    local testAmbushButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    testAmbushButton:SetSize(140, 24)
+    testAmbushButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 470, -460)
+    testAmbushButton:SetText("Test Ambush Alert")
+    testAmbushButton:SetScript("OnClick", function()
+        TryPlaySound(AMBUSH_SOUND_PATH, true)
+    end)
 
     local note = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    note:SetPoint("TOPLEFT", panel, "TOPLEFT", 320, -552)
+    note:SetPoint("TOPLEFT", panel, "TOPLEFT", 320, -582)
     note:SetWidth(280)
     note:SetJustifyH("LEFT")
     note:SetWordWrap(true)
-    note:SetText("Enhance Sounds layers extra plays for perceived loudness. WoW does not expose true per-addon file volume.")
+    note:SetText("Enhance Sounds layers extra plays for perceived loudness. WoW does not expose true per-addon file volume. Ambush alert triggers on system chat messages containing \"ambush\".")
 
     if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
         local category = Settings.RegisterCanvasLayoutCategory(panel, "Preydator", "Preydator")
@@ -2217,6 +2266,11 @@ frame:SetScript("OnEvent", function(_, event, arg1)
         state.progressState = PREY_PROGRESS_FINAL
         state.progressPercent = 100
         UpdateBarDisplay()
+    end
+
+    if event == "CHAT_MSG_SYSTEM" then
+        OnAmbushSystemMessage(arg1)
+        return
     end
 
     UpdatePreyState()
