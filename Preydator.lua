@@ -59,6 +59,8 @@ local BAR_TICK_PCTS_BY_SEGMENT = {
 local PERCENT_DISPLAY_INSIDE = "inside"
 local PERCENT_DISPLAY_INSIDE_BELOW = "inside_below"
 local PERCENT_DISPLAY_BELOW_BAR = "below_bar"
+PERCENT_DISPLAY_ABOVE_BAR = "above_bar"
+PERCENT_DISPLAY_ABOVE_TICKS = "above_ticks"
 local PERCENT_DISPLAY_UNDER_TICKS = "under_ticks"
 local PERCENT_DISPLAY_OFF = "off"
 local PERCENT_FALLBACK_STAGE = "stage"
@@ -66,11 +68,19 @@ local LAYER_MODE_ABOVE = "above"
 local LAYER_MODE_BELOW = "below"
 local LABEL_MODE_CENTER = "center"
 local LABEL_MODE_LEFT = "left"
+LABEL_MODE_LEFT_COMBINED = "left_combined"
 local LABEL_MODE_LEFT_SUFFIX = "left_suffix"
 local LABEL_MODE_RIGHT = "right"
+LABEL_MODE_RIGHT_COMBINED = "right_combined"
 local LABEL_MODE_RIGHT_PREFIX = "right_prefix"
 local LABEL_MODE_SEPARATE = "separate"
 local LABEL_MODE_NONE = "none"
+LABEL_ROW_ABOVE = "above"
+LABEL_ROW_BELOW = "below"
+ORIENTATION_HORIZONTAL = "horizontal"
+ORIENTATION_VERTICAL = "vertical"
+FILL_DIRECTION_UP = "up"
+FILL_DIRECTION_DOWN = "down"
 local FILL_INSET = 3
 local AMBUSH_ALERT_DURATION_SECONDS = 6
 local AMBUSH_SOUND_ALERT = "alert"
@@ -134,8 +144,13 @@ local ShouldSuppressDefaultPreyEncounter
 local DEFAULTS = {
     point = { anchor = "CENTER", relativePoint = "CENTER", x = 0, y = -200 },
     width = 160,
-    height = 29,
+    height = 30,
+    horizontalWidth = 160,
+    horizontalHeight = 30,
+    verticalWidth = 40,
+    verticalHeight = 160,
     scale = 0.9,
+    verticalScale = 0.9,
     fontSize = 12,
     locked = true,
     forceShowBar = false,
@@ -184,6 +199,18 @@ local DEFAULTS = {
     showTicks = true,
     showSparkLine = false,
     tickLayerMode = LAYER_MODE_ABOVE,
+    labelRowPosition = "above",
+    orientation = "horizontal",
+    verticalFillDirection = "up",
+    verticalTextSide = "right",
+    verticalPercentSide = "center",
+    showVerticalTickPercent = false,
+    verticalPercentDisplay = PERCENT_DISPLAY_INSIDE,
+    verticalTextOffset = 10,
+    verticalPercentOffset = 10,
+    verticalTextAlign = "separate",
+    showAlignmentDot = false,
+    verticalSideOffset = 10,
     progressSegments = PROGRESS_SEGMENTS_THIRDS,
     stageLabelMode = LABEL_MODE_CENTER,
     stageSuffixLabels = {
@@ -230,6 +257,7 @@ local barSpark
 local barText
 local stageText
 local stageSuffixText
+local barAlignmentDot
 local barBorder
 local barTickMarks = {}
 local barTickLabels = {}
@@ -298,6 +326,15 @@ Preydator.GetBarFrame = function()
     return barFrame
 end
 
+Preydator.GetLabelFrames = function()
+    return {
+        prefix = stageText,
+        suffix = stageSuffixText,
+        percent = barText,
+        centerDot = barAlignmentDot,
+    }
+end
+
 Preydator.RequestRefresh = function()
     if type(UpdateBarDisplay) == "function" then
         UpdateBarDisplay()
@@ -318,8 +355,11 @@ local function ApplyDefaults(dst, src)
 end
 
 local function GetStageLabel(stage)
-    if settings and settings.stageLabels and settings.stageLabels[stage] then
-        return settings.stageLabels[stage]
+    if settings and settings.stageLabels then
+        local customLabel = settings.stageLabels[stage]
+        if type(customLabel) == "string" and customLabel ~= "" then
+            return customLabel
+        end
     end
 
     return DEFAULT_STAGE_LABELS[stage] or "Unknown"
@@ -412,8 +452,9 @@ local function NormalizeDisplaySettings()
     end
 
     if mode ~= PERCENT_DISPLAY_INSIDE
-        and mode ~= PERCENT_DISPLAY_INSIDE_BELOW
         and mode ~= PERCENT_DISPLAY_BELOW_BAR
+        and mode ~= "above_bar"
+        and mode ~= "above_ticks"
         and mode ~= PERCENT_DISPLAY_UNDER_TICKS
         and mode ~= PERCENT_DISPLAY_OFF
     then
@@ -422,25 +463,146 @@ local function NormalizeDisplaySettings()
         settings.percentDisplay = mode
     end
 
-    local tickLayerMode = settings.tickLayerMode
-    if tickLayerMode ~= LAYER_MODE_ABOVE and tickLayerMode ~= LAYER_MODE_BELOW then
-        settings.tickLayerMode = LAYER_MODE_ABOVE
-    else
-        settings.tickLayerMode = tickLayerMode
-    end
+    settings.tickLayerMode = LAYER_MODE_ABOVE
 
     settings.percentFallbackMode = PERCENT_FALLBACK_STAGE
 
     local labelMode = settings.stageLabelMode
     if labelMode ~= LABEL_MODE_CENTER
         and labelMode ~= LABEL_MODE_LEFT
+        and labelMode ~= "left_combined"
         and labelMode ~= LABEL_MODE_LEFT_SUFFIX
         and labelMode ~= LABEL_MODE_RIGHT
+        and labelMode ~= "right_combined"
         and labelMode ~= LABEL_MODE_RIGHT_PREFIX
         and labelMode ~= LABEL_MODE_SEPARATE
         and labelMode ~= LABEL_MODE_NONE
     then
         settings.stageLabelMode = LABEL_MODE_CENTER
+    end
+
+    if settings.labelRowPosition ~= "above" and settings.labelRowPosition ~= "below" then
+        settings.labelRowPosition = "above"
+    end
+
+    if settings.orientation ~= "horizontal" and settings.orientation ~= "vertical" then
+        settings.orientation = "horizontal"
+    end
+
+    if settings.verticalFillDirection ~= "up" and settings.verticalFillDirection ~= "down" then
+        settings.verticalFillDirection = "up"
+    end
+
+    if settings.verticalTextSide ~= "left" and settings.verticalTextSide ~= "right" then
+        settings.verticalTextSide = "right"
+    end
+
+    -- migrate old "off" and "inside" values to new vocabulary
+    if settings.verticalPercentSide == "off" then
+        settings.verticalPercentSide = "center"
+    elseif settings.verticalPercentSide == "inside" then
+        settings.verticalPercentSide = "center"
+    end
+    if settings.verticalPercentSide ~= "left"
+        and settings.verticalPercentSide ~= "center"
+        and settings.verticalPercentSide ~= "right"
+    then
+        settings.verticalPercentSide = "center"
+    end
+
+    local verticalPercentDisplay = settings.verticalPercentDisplay
+    if verticalPercentDisplay == PERCENT_DISPLAY_INSIDE_BELOW then
+        verticalPercentDisplay = PERCENT_DISPLAY_INSIDE
+    end
+    if verticalPercentDisplay ~= PERCENT_DISPLAY_INSIDE
+        and verticalPercentDisplay ~= PERCENT_DISPLAY_BELOW_BAR
+        and verticalPercentDisplay ~= PERCENT_DISPLAY_ABOVE_BAR
+        and verticalPercentDisplay ~= PERCENT_DISPLAY_OFF
+    then
+        settings.verticalPercentDisplay = PERCENT_DISPLAY_INSIDE
+    else
+        settings.verticalPercentDisplay = verticalPercentDisplay
+    end
+
+    if settings.percentDisplay == PERCENT_DISPLAY_INSIDE_BELOW then
+        settings.percentDisplay = PERCENT_DISPLAY_INSIDE
+    end
+
+    settings.showAlignmentDot = false
+
+    local verticalTextAlign = settings.verticalTextAlign
+    if verticalTextAlign ~= "top"
+        and verticalTextAlign ~= "middle"
+        and verticalTextAlign ~= "bottom"
+        and verticalTextAlign ~= "top_prefix_only"
+        and verticalTextAlign ~= "top_suffix_only"
+        and verticalTextAlign ~= "bottom_prefix_only"
+        and verticalTextAlign ~= "bottom_suffix_only"
+        and verticalTextAlign ~= "separate"
+    then
+        settings.verticalTextAlign = "separate"
+    end
+
+    local legacyWidth = tonumber(settings.width)
+    local legacyHeight = tonumber(settings.height)
+
+    local horizontalWidth = tonumber(settings.horizontalWidth)
+    if not horizontalWidth then
+        horizontalWidth = legacyWidth or DEFAULTS.horizontalWidth
+    end
+    settings.horizontalWidth = Clamp(math.floor(horizontalWidth + 0.5), 100, 350)
+
+    local horizontalHeight = tonumber(settings.horizontalHeight)
+    if not horizontalHeight then
+        horizontalHeight = legacyHeight or DEFAULTS.horizontalHeight
+    end
+    settings.horizontalHeight = Clamp(math.floor(horizontalHeight + 0.5), 10, 60)
+
+    local verticalWidth = tonumber(settings.verticalWidth)
+    if not verticalWidth then
+        if settings.orientation == ORIENTATION_VERTICAL and legacyWidth then
+            verticalWidth = legacyWidth
+        else
+            verticalWidth = DEFAULTS.verticalWidth
+        end
+    end
+    settings.verticalWidth = Clamp(math.floor(verticalWidth + 0.5), 10, 60)
+
+    local verticalHeight = tonumber(settings.verticalHeight)
+    if not verticalHeight then
+        if settings.orientation == ORIENTATION_VERTICAL and legacyHeight then
+            verticalHeight = legacyHeight
+        else
+            verticalHeight = DEFAULTS.verticalHeight
+        end
+    end
+    settings.verticalHeight = Clamp(math.floor(verticalHeight + 0.5), 100, 350)
+
+    local legacySideOffset = tonumber(settings.verticalSideOffset)
+    if not legacySideOffset then
+        legacySideOffset = 10
+    end
+
+    local verticalTextOffset = tonumber(settings.verticalTextOffset)
+    if not verticalTextOffset then
+        verticalTextOffset = legacySideOffset
+    end
+    settings.verticalTextOffset = Clamp(math.floor(verticalTextOffset + 0.5), 2, 60)
+
+    local verticalPercentOffset = tonumber(settings.verticalPercentOffset)
+    if not verticalPercentOffset then
+        verticalPercentOffset = legacySideOffset
+    end
+    settings.verticalPercentOffset = Clamp(math.floor(verticalPercentOffset + 0.5), 2, 60)
+
+    settings.verticalSideOffset = settings.verticalTextOffset
+
+    if settings.orientation == ORIENTATION_VERTICAL then
+        settings.width = settings.verticalWidth
+        settings.height = settings.verticalHeight
+    else
+        settings.width = settings.horizontalWidth
+        settings.height = settings.horizontalHeight
     end
 
     if type(settings.stageSuffixLabels) ~= "table" then
@@ -459,19 +621,202 @@ local function IsEditModePreviewActive()
 end
 
 local function GetTickLayerSettings()
-    if settings and settings.tickLayerMode == LAYER_MODE_BELOW then
-        return "BACKGROUND", 2
-    end
-
     return "OVERLAY", 4
 end
 
 local function GetPercentTextLayerSettings()
-    if settings and settings.percentDisplay == PERCENT_DISPLAY_INSIDE_BELOW then
-        return "BACKGROUND", 3
+    local mode = settings and settings.percentDisplay or PERCENT_DISPLAY_INSIDE
+    if settings and settings.orientation == ORIENTATION_VERTICAL and type(settings.verticalPercentDisplay) == "string" then
+        mode = settings.verticalPercentDisplay
+    end
+
+    if mode == PERCENT_DISPLAY_INSIDE_BELOW then
+        mode = PERCENT_DISPLAY_INSIDE
+    end
+
+    if mode == PERCENT_DISPLAY_ABOVE_TICKS then
+        return "OVERLAY", 10
     end
 
     return "OVERLAY", 7
+end
+
+local function ApplyVerticalLabelRotation(fontString, enabled, side)
+    if not fontString or not fontString.SetRotation then
+        return
+    end
+
+    if enabled then
+        if side == "left" then
+            fontString:SetRotation(math.pi / 2)
+        else
+            fontString:SetRotation(-math.pi / 2)
+        end
+    else
+        fontString:SetRotation(0)
+    end
+end
+
+local function ResolveVerticalLabelJustifyH(side, anchorPoint)
+    if anchorPoint == "CENTER" then
+        return "CENTER"
+    end
+
+    local isTop = type(anchorPoint) == "string" and string.sub(anchorPoint, 1, 3) == "TOP"
+    local isBottom = type(anchorPoint) == "string" and string.sub(anchorPoint, 1, 6) == "BOTTOM"
+
+    if side == "left" then
+        if isTop then
+            return "RIGHT"
+        end
+        if isBottom then
+            return "LEFT"
+        end
+        return "LEFT"
+    end
+
+    if isTop then
+        return "LEFT"
+    end
+    if isBottom then
+        return "RIGHT"
+    end
+    return "RIGHT"
+end
+
+Preydator.GetRenderedVerticalPercent = function(rawPct, fillDirection)
+    if fillDirection == FILL_DIRECTION_DOWN then
+        return 100 - rawPct
+    end
+
+    return rawPct
+end
+
+Preydator.ResolveVerticalTextAnchor = function(side, align, offset, isSuffix)
+    local sidePoint = (side == "left") and "LEFT" or "RIGHT"
+    local topAnchor = "TOP" .. sidePoint
+    local middleAnchor = sidePoint
+    local bottomAnchor = "BOTTOM" .. sidePoint
+
+    local relSidePoint = sidePoint
+    local topRelative = "TOP" .. relSidePoint
+    local middleRelative = relSidePoint
+    local bottomRelative = "BOTTOM" .. relSidePoint
+    local xOffset = (side == "left") and -(offset + FILL_INSET) or (offset + FILL_INSET)
+    local gap = 14
+
+    if align == "top" then
+        if side == "left" then
+            if isSuffix then
+                return "TOPRIGHT", topRelative, xOffset, -2
+            end
+            return "TOPRIGHT", topRelative, xOffset, -(gap + 10)
+        end
+        local y = -2
+        return "TOPLEFT", topRelative, xOffset, y
+    end
+
+    if align == "middle" then
+        if side == "left" then
+            if isSuffix then
+                return "TOPRIGHT", middleRelative, xOffset, math.floor(gap / 2)
+            end
+            return "BOTTOMLEFT", middleRelative, xOffset, -math.floor(gap / 2)
+        end
+        if isSuffix then
+            return "BOTTOM" .. sidePoint, middleRelative, xOffset, math.floor(gap / 2)
+        end
+        return "TOP" .. sidePoint, middleRelative, xOffset, -math.floor(gap / 2)
+    end
+
+    if align == "bottom" then
+        if side == "left" then
+            if isSuffix then
+                return "TOPRIGHT", bottomRelative, xOffset, -(gap + 10)
+            end
+            return bottomAnchor, bottomRelative, xOffset, -10
+        end
+        local y = -10
+        return bottomAnchor, bottomRelative, xOffset, y
+    end
+
+    if align == "top_prefix_only" then
+        if side == "left" then
+            if isSuffix then
+                return bottomAnchor, bottomRelative, xOffset, -10
+            end
+            return "TOPRIGHT", topRelative, xOffset, -2
+        end
+        if isSuffix then
+            return bottomAnchor, bottomRelative, xOffset, -10
+        end
+        return "TOPLEFT", topRelative, xOffset, -2
+    end
+
+    if align == "top_suffix_only" then
+        if side == "left" then
+            if isSuffix then
+                return "TOPRIGHT", topRelative, xOffset, -2
+            end
+            return bottomAnchor, bottomRelative, xOffset, -10
+        end
+        if isSuffix then
+            return "TOPLEFT", topRelative, xOffset, -2
+        end
+        return bottomAnchor, bottomRelative, xOffset, -10
+    end
+
+    if align == "bottom_prefix_only" then
+        if side == "left" then
+            if isSuffix then
+                return "TOPRIGHT", topRelative, xOffset, -2
+            end
+            return bottomAnchor, bottomRelative, xOffset, -10
+        end
+        if isSuffix then
+            return "TOPLEFT", topRelative, xOffset, -2
+        end
+        return bottomAnchor, bottomRelative, xOffset, -10
+    end
+
+    if align == "bottom_suffix_only" then
+        if side == "left" then
+            if isSuffix then
+                return bottomAnchor, bottomRelative, xOffset, -10
+            end
+            return "TOPRIGHT", topRelative, xOffset, -2
+        end
+        if isSuffix then
+            return bottomAnchor, bottomRelative, xOffset, -10
+        end
+        return "TOPLEFT", topRelative, xOffset, -2
+    end
+
+    if side == "left" then
+        if isSuffix then
+            return "TOPRIGHT", topRelative, xOffset, -2
+        end
+        return bottomAnchor, bottomRelative, xOffset, -10
+    end
+
+    if isSuffix then
+        return bottomAnchor, bottomRelative, xOffset, -10
+    end
+
+    return "TOPLEFT", topRelative, xOffset, -2
+end
+
+local function ToVerticalText(text)
+    if type(text) ~= "string" or text == "" then
+        return ""
+    end
+
+    local chars = {}
+    for ch in text:gmatch(".") do
+        chars[#chars + 1] = ch
+    end
+
+    return table.concat(chars, "\n")
 end
 
 local function NormalizeProgressSettings()
@@ -1073,9 +1418,32 @@ local function ApplyBarSettings()
     local point = settings.point
     local anchor = string.upper(tostring(point.anchor or DEFAULTS.point.anchor))
     local relativePoint = string.upper(tostring(point.relativePoint or DEFAULTS.point.relativePoint))
-    local frameScale = Clamp(tonumber(settings.scale) or DEFAULTS.scale, 0.5, 2)
-    local scaledWidth = math.max(160, Round((tonumber(settings.width) or DEFAULTS.width) * frameScale))
-    local scaledHeight = math.max(10, Round((tonumber(settings.height) or DEFAULTS.height) * frameScale))
+    local orientation = settings.orientation or ORIENTATION_HORIZONTAL
+    local frameScale
+    if orientation == ORIENTATION_VERTICAL then
+        frameScale = Clamp(tonumber(settings.verticalScale) or DEFAULTS.verticalScale, 0.5, 2)
+    else
+        frameScale = Clamp(tonumber(settings.scale) or DEFAULTS.scale, 0.5, 2)
+    end
+    local baseWidth
+    local baseHeight
+    if orientation == ORIENTATION_VERTICAL then
+        baseWidth = Clamp(math.floor((tonumber(settings.verticalWidth) or DEFAULTS.verticalWidth) + 0.5), 10, 60)
+        baseHeight = Clamp(math.floor((tonumber(settings.verticalHeight) or DEFAULTS.verticalHeight) + 0.5), 100, 350)
+        settings.verticalWidth = baseWidth
+        settings.verticalHeight = baseHeight
+    else
+        baseWidth = Clamp(math.floor((tonumber(settings.horizontalWidth) or DEFAULTS.horizontalWidth) + 0.5), 100, 350)
+        baseHeight = Clamp(math.floor((tonumber(settings.horizontalHeight) or DEFAULTS.horizontalHeight) + 0.5), 10, 60)
+        settings.horizontalWidth = baseWidth
+        settings.horizontalHeight = baseHeight
+    end
+
+    settings.width = baseWidth
+    settings.height = baseHeight
+
+    local scaledWidth = math.max(1, Round(baseWidth * frameScale))
+    local scaledHeight = math.max(1, Round(baseHeight * frameScale))
     if anchor ~= "CENTER" then
         anchor = "CENTER"
     end
@@ -1089,7 +1457,11 @@ local function ApplyBarSettings()
     point.anchor = anchor
     point.relativePoint = relativePoint
 
-    settings.scale = frameScale
+    if orientation == ORIENTATION_VERTICAL then
+        settings.verticalScale = frameScale
+    else
+        settings.scale = frameScale
+    end
 
     barFrame:SetSize(scaledWidth, scaledHeight)
     barFrame:SetScale(1)
@@ -1118,7 +1490,11 @@ local function ApplyBarSettings()
     if barSpark then
         local spark = settings.sparkColor or DEFAULTS.sparkColor
         barSpark:SetColorTexture(spark[1], spark[2], spark[3], spark[4] or 0.9)
-        barSpark:SetSize(2, math.max(1, scaledHeight - 2 * FILL_INSET))
+        if orientation == ORIENTATION_VERTICAL then
+            barSpark:SetSize(math.max(1, scaledWidth - 2 * FILL_INSET), 2)
+        else
+            barSpark:SetSize(2, math.max(1, scaledHeight - 2 * FILL_INSET))
+        end
         barSpark:SetDrawLayer("OVERLAY", 3)
         if not settings.showSparkLine then
             barSpark:Hide()
@@ -1127,8 +1503,22 @@ local function ApplyBarSettings()
 
     if barFrame.BackgroundTexture then
         local bg = settings.bgColor
+        barFrame.BackgroundTexture:ClearAllPoints()
+        barFrame.BackgroundTexture:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", FILL_INSET, FILL_INSET)
+        barFrame.BackgroundTexture:SetPoint("TOPRIGHT", barFrame, "TOPRIGHT", -FILL_INSET, -FILL_INSET)
         barFrame.BackgroundTexture:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
     end
+
+    local labelRow = settings.labelRowPosition or LABEL_ROW_ABOVE
+    local verticalTextSide = settings.verticalTextSide or "right"
+    local verticalPercentSide = settings.verticalPercentSide or "center"
+    local percentDisplayMode = settings.percentDisplay or PERCENT_DISPLAY_INSIDE
+    if orientation == ORIENTATION_VERTICAL then
+        percentDisplayMode = settings.verticalPercentDisplay or settings.percentDisplay or PERCENT_DISPLAY_INSIDE
+    end
+    local verticalTextOffset = Clamp(math.floor((tonumber(settings.verticalTextOffset) or 10) + 0.5), 2, 60)
+    local verticalPercentOffset = Clamp(math.floor((tonumber(settings.verticalPercentOffset) or 10) + 0.5), 2, 60)
+    local verticalTextAlign = settings.verticalTextAlign or "separate"
 
     if stageText then
         local _, _, flags = stageText:GetFont()
@@ -1139,14 +1529,49 @@ local function ApplyBarSettings()
 
         local lm = settings.stageLabelMode or LABEL_MODE_CENTER
         stageText:ClearAllPoints()
-        if lm == LABEL_MODE_LEFT or lm == LABEL_MODE_LEFT_SUFFIX or lm == LABEL_MODE_SEPARATE then
-            stageText:SetPoint("BOTTOMLEFT", barFrame, "TOPLEFT", 2, 4)
+        if orientation == ORIENTATION_VERTICAL then
+            local anchorPoint, relativeAnchor, xOffset, yOffset
+            if verticalTextAlign == "middle" then
+                anchorPoint = "CENTER"
+                relativeAnchor = (verticalTextSide == "left") and "LEFT" or "RIGHT"
+                xOffset = (verticalTextSide == "left") and -(verticalTextOffset + FILL_INSET) or (verticalTextOffset + FILL_INSET)
+                yOffset = -6
+            elseif verticalTextAlign == "top" then
+                local useSuffixBoundary = verticalTextSide == "left"
+                anchorPoint, relativeAnchor, xOffset, yOffset = Preydator.ResolveVerticalTextAnchor(verticalTextSide, verticalTextAlign, verticalTextOffset, useSuffixBoundary)
+            elseif verticalTextAlign == "bottom" then
+                local useSuffixBoundary = verticalTextSide == "right"
+                anchorPoint, relativeAnchor, xOffset, yOffset = Preydator.ResolveVerticalTextAnchor(verticalTextSide, verticalTextAlign, verticalTextOffset, useSuffixBoundary)
+            else
+                anchorPoint, relativeAnchor, xOffset, yOffset = Preydator.ResolveVerticalTextAnchor(verticalTextSide, verticalTextAlign, verticalTextOffset, false)
+            end
+            stageText:SetPoint(anchorPoint, barFrame, relativeAnchor, xOffset, yOffset)
+            stageText:SetJustifyH(ResolveVerticalLabelJustifyH(verticalTextSide, anchorPoint))
+            stageText:SetJustifyV("MIDDLE")
+            ApplyVerticalLabelRotation(stageText, true, verticalTextSide)
+        elseif lm == LABEL_MODE_LEFT or lm == LABEL_MODE_LEFT_COMBINED or lm == LABEL_MODE_LEFT_SUFFIX or lm == LABEL_MODE_SEPARATE then
+            if labelRow == LABEL_ROW_BELOW then
+                stageText:SetPoint("TOPLEFT", barFrame, "BOTTOMLEFT", 2, -4)
+            else
+                stageText:SetPoint("BOTTOMLEFT", barFrame, "TOPLEFT", 2, 4)
+            end
             stageText:SetJustifyH("LEFT")
+            ApplyVerticalLabelRotation(stageText, false, verticalTextSide)
         elseif lm == LABEL_MODE_NONE then
-            stageText:SetPoint("BOTTOM", barFrame, "TOP", 0, 4)
+            if labelRow == LABEL_ROW_BELOW then
+                stageText:SetPoint("TOP", barFrame, "BOTTOM", 0, -4)
+            else
+                stageText:SetPoint("BOTTOM", barFrame, "TOP", 0, 4)
+            end
+            ApplyVerticalLabelRotation(stageText, false, verticalTextSide)
         else
-            stageText:SetPoint("BOTTOM", barFrame, "TOP", 0, 4)
+            if labelRow == LABEL_ROW_BELOW then
+                stageText:SetPoint("TOP", barFrame, "BOTTOM", 0, -4)
+            else
+                stageText:SetPoint("BOTTOM", barFrame, "TOP", 0, 4)
+            end
             stageText:SetJustifyH("CENTER")
+            ApplyVerticalLabelRotation(stageText, false, verticalTextSide)
         end
     end
 
@@ -1157,8 +1582,21 @@ local function ApplyBarSettings()
         local titleColor = settings.titleColor or DEFAULTS.titleColor
         stageSuffixText:SetTextColor(titleColor[1], titleColor[2], titleColor[3], titleColor[4] or 1)
         stageSuffixText:ClearAllPoints()
-        stageSuffixText:SetPoint("BOTTOMRIGHT", barFrame, "TOPRIGHT", -2, 4)
-        stageSuffixText:SetJustifyH("RIGHT")
+        if orientation == ORIENTATION_VERTICAL then
+            local anchorPoint, relativeAnchor, xOffset, yOffset = Preydator.ResolveVerticalTextAnchor(verticalTextSide, verticalTextAlign, verticalTextOffset, true)
+            stageSuffixText:SetPoint(anchorPoint, barFrame, relativeAnchor, xOffset, yOffset)
+            stageSuffixText:SetJustifyH(ResolveVerticalLabelJustifyH(verticalTextSide, anchorPoint))
+            stageSuffixText:SetJustifyV("MIDDLE")
+            ApplyVerticalLabelRotation(stageSuffixText, true, verticalTextSide)
+        else
+            if labelRow == LABEL_ROW_BELOW then
+                stageSuffixText:SetPoint("TOPRIGHT", barFrame, "BOTTOMRIGHT", -2, -4)
+            else
+                stageSuffixText:SetPoint("BOTTOMRIGHT", barFrame, "TOPRIGHT", -2, 4)
+            end
+            stageSuffixText:SetJustifyH("RIGHT")
+            ApplyVerticalLabelRotation(stageSuffixText, false, verticalTextSide)
+        end
     end
 
     if barText then
@@ -1180,7 +1618,12 @@ local function ApplyBarSettings()
             tickLabel:SetFont(percentFont, math.max(7, Round(((tonumber(settings.fontSize) or DEFAULTS.fontSize) - 4) * frameScale)), flags)
             local percentColor = settings.percentColor or DEFAULTS.percentColor
             tickLabel:SetTextColor(percentColor[1], percentColor[2], percentColor[3], 0.9)
-            tickLabel:SetShown(hasTick and settings.showTicks and settings.percentDisplay == PERCENT_DISPLAY_UNDER_TICKS)
+            if orientation ~= ORIENTATION_VERTICAL then
+                tickLabel:SetShown(hasTick and settings.showTicks and (
+                    percentDisplayMode == PERCENT_DISPLAY_UNDER_TICKS
+                    or percentDisplayMode == PERCENT_DISPLAY_ABOVE_TICKS
+                ))
+            end
         end
 
         local tickMark = barTickMarks[index]
@@ -1195,26 +1638,49 @@ local function ApplyBarSettings()
 
     local barWidth = scaledWidth
     local barHeight = scaledHeight
+    if barAlignmentDot then
+        barAlignmentDot:ClearAllPoints()
+        barAlignmentDot:SetPoint("CENTER", barFrame, "CENTER", 0, 0)
+        barAlignmentDot:Hide()
+    end
+
     local innerTickWidth = math.max(0, barWidth - (2 * FILL_INSET))
     local innerTickHeight = math.max(1, barHeight - (2 * FILL_INSET))
     local tickWidth = 1
     for index = 1, MAX_TICK_MARKS do
         local pct = tickPercents[index]
         local x = nil
+        local y = nil
         if pct then
-            x = FILL_INSET + math.floor((innerTickWidth * (pct / 100)) + 0.5)
-            x = math.floor((x / tickWidth) + 0.5) * tickWidth
+            local renderPct = (orientation == ORIENTATION_VERTICAL) and Preydator.GetRenderedVerticalPercent(pct, settings.verticalFillDirection) or pct
+            if orientation == ORIENTATION_VERTICAL then
+                y = FILL_INSET + math.floor((innerTickHeight * (renderPct / 100)) + 0.5)
+                y = math.floor((y / tickWidth) + 0.5) * tickWidth
+            else
+                x = FILL_INSET + math.floor((innerTickWidth * (pct / 100)) + 0.5)
+                x = math.floor((x / tickWidth) + 0.5) * tickWidth
+            end
         end
         local tickMark = barTickMarks[index]
         if tickMark then
             if pct then
                 tickMark:ClearAllPoints()
-                if pct == 100 then
-                    tickMark:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", barWidth - FILL_INSET - tickWidth, FILL_INSET)
+                if orientation == ORIENTATION_VERTICAL then
+                    local renderPct = Preydator.GetRenderedVerticalPercent(pct, settings.verticalFillDirection)
+                    if renderPct == 100 then
+                        tickMark:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", FILL_INSET, barHeight - FILL_INSET - tickWidth)
+                    else
+                        tickMark:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", FILL_INSET, y)
+                    end
+                    tickMark:SetSize(innerTickWidth, tickWidth)
                 else
-                    tickMark:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", x, FILL_INSET)
+                    if pct == 100 then
+                        tickMark:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", barWidth - FILL_INSET - tickWidth, FILL_INSET)
+                    else
+                        tickMark:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", x, FILL_INSET)
+                    end
+                    tickMark:SetSize(tickWidth, innerTickHeight)
                 end
-                tickMark:SetSize(tickWidth, innerTickHeight)
             else
                 tickMark:Hide()
             end
@@ -1224,7 +1690,43 @@ local function ApplyBarSettings()
         if tickLabel then
             if pct then
                 tickLabel:ClearAllPoints()
-                if pct == 0 then
+                if orientation == ORIENTATION_VERTICAL then
+                    local renderPct = Preydator.GetRenderedVerticalPercent(pct, settings.verticalFillDirection)
+                    local percentEdgeOffset = verticalPercentOffset + FILL_INSET
+                    local showTickPct = settings.showVerticalTickPercent == true
+                        and percentDisplayMode ~= PERCENT_DISPLAY_OFF
+                    if not showTickPct then
+                        tickLabel:SetText("")
+                        tickLabel:Hide()
+                    elseif verticalPercentSide == "center" then
+                        -- inside: below tick when fill up, above tick when fill down
+                        if settings.verticalFillDirection == FILL_DIRECTION_DOWN then
+                            tickLabel:SetPoint("BOTTOM", barFrame, "BOTTOM", 0, y + 2)
+                        else
+                            tickLabel:SetPoint("TOP", barFrame, "BOTTOM", 0, y - 2)
+                        end
+                    elseif renderPct == 100 then
+                        if verticalPercentSide == "left" then
+                            tickLabel:SetPoint("RIGHT", barFrame, "BOTTOMLEFT", -percentEdgeOffset, barHeight - FILL_INSET)
+                        else
+                            tickLabel:SetPoint("LEFT", barFrame, "BOTTOMRIGHT", percentEdgeOffset, barHeight - FILL_INSET)
+                        end
+                    else
+                        if verticalPercentSide == "left" then
+                            tickLabel:SetPoint("RIGHT", barFrame, "BOTTOMLEFT", -percentEdgeOffset, y)
+                        else
+                            tickLabel:SetPoint("LEFT", barFrame, "BOTTOMRIGHT", percentEdgeOffset, y)
+                        end
+                    end
+                elseif percentDisplayMode == PERCENT_DISPLAY_ABOVE_TICKS then
+                    if pct == 0 then
+                        tickLabel:SetPoint("BOTTOMLEFT", barFrame, "TOPLEFT", 0, 1)
+                    elseif pct == 100 then
+                        tickLabel:SetPoint("BOTTOMRIGHT", barFrame, "TOPRIGHT", 0, 1)
+                    else
+                        tickLabel:SetPoint("BOTTOM", barFrame, "BOTTOMLEFT", x, barHeight + 1)
+                    end
+                elseif pct == 0 then
                     tickLabel:SetPoint("TOPLEFT", barFrame, "BOTTOMLEFT", 0, -1)
                 elseif pct == 100 then
                     tickLabel:SetPoint("TOPRIGHT", barFrame, "BOTTOMRIGHT", 0, -1)
@@ -1232,7 +1734,17 @@ local function ApplyBarSettings()
                     tickLabel:SetPoint("TOP", barFrame, "BOTTOMLEFT", x, -1)
                 end
                 tickLabel:SetText(tostring(pct))
-                tickLabel:SetDrawLayer("OVERLAY", 8)
+                tickLabel:SetDrawLayer("OVERLAY", 7)
+                if orientation == ORIENTATION_VERTICAL then
+                    local showTickPct = settings.showVerticalTickPercent == true
+                        and percentDisplayMode ~= PERCENT_DISPLAY_OFF
+                    tickLabel:SetShown(showTickPct)
+                else
+                    tickLabel:SetShown(settings.showTicks and (
+                        percentDisplayMode == PERCENT_DISPLAY_UNDER_TICKS
+                        or percentDisplayMode == PERCENT_DISPLAY_ABOVE_TICKS
+                    ))
+                end
             else
                 tickLabel:SetText("")
                 tickLabel:Hide()
@@ -1240,19 +1752,44 @@ local function ApplyBarSettings()
         end
     end
 
+    local verticalTicksReplacePercent = orientation == ORIENTATION_VERTICAL
+        and settings.showVerticalTickPercent == true
+        and percentDisplayMode ~= PERCENT_DISPLAY_OFF
+
     if barText then
-        if settings.percentDisplay == PERCENT_DISPLAY_OFF then
+        if verticalTicksReplacePercent then
             barText:Hide()
-        elseif settings.percentDisplay == PERCENT_DISPLAY_BELOW_BAR then
+        elseif percentDisplayMode == PERCENT_DISPLAY_OFF then
+            barText:Hide()
+        elseif percentDisplayMode == PERCENT_DISPLAY_ABOVE_BAR then
             barText:Show()
             barText:ClearAllPoints()
-            barText:SetPoint("TOP", barFrame, "BOTTOM", 0, -14)
-        elseif settings.percentDisplay == PERCENT_DISPLAY_UNDER_TICKS then
+            if orientation == ORIENTATION_VERTICAL then
+                barText:SetPoint("BOTTOM", barFrame, "TOP", 0, math.max(2, verticalPercentOffset))
+            else
+                barText:SetPoint("BOTTOM", barFrame, "TOP", 0, 4)
+            end
+        elseif percentDisplayMode == PERCENT_DISPLAY_ABOVE_TICKS then
+            barText:Hide()
+        elseif percentDisplayMode == PERCENT_DISPLAY_BELOW_BAR then
+            barText:Show()
+            barText:ClearAllPoints()
+            if orientation == ORIENTATION_VERTICAL then
+                barText:SetPoint("TOP", barFrame, "BOTTOM", 0, -math.max(2, verticalPercentOffset))
+            else
+                barText:SetPoint("TOP", barFrame, "BOTTOM", 0, -14)
+            end
+        elseif percentDisplayMode == PERCENT_DISPLAY_UNDER_TICKS then
             barText:Hide()
         else
             barText:Show()
             barText:ClearAllPoints()
-            barText:SetPoint("center", barFrame, "center", 0, 0)
+            if orientation == ORIENTATION_VERTICAL then
+                barText:SetPoint("CENTER", barFrame, "CENTER", 0, 0)
+                barText:SetDrawLayer("OVERLAY", 7)
+            else
+                barText:SetPoint("center", barFrame, "center", 0, 0)
+            end
         end
     end
 
@@ -1382,7 +1919,8 @@ local function EnsureBar()
     end)
 
     local bg = barFrame:CreateTexture(nil, "background")
-    bg:SetAllPoints()
+    bg:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", FILL_INSET, FILL_INSET)
+    bg:SetPoint("TOPRIGHT", barFrame, "TOPRIGHT", -FILL_INSET, -FILL_INSET)
     bg:SetColorTexture(0, 0, 0, 0.6)
     barFrame.BackgroundTexture = bg
 
@@ -1426,6 +1964,13 @@ local function EnsureBar()
     barText:SetPoint("center", barFrame, "center", 0, 0)
     barText:SetDrawLayer("OVERLAY", 9)
     barText:SetText("0%")
+
+    barAlignmentDot = barFrame:CreateTexture(nil, "OVERLAY")
+    barAlignmentDot:SetSize(6, 6)
+    barAlignmentDot:SetColorTexture(0, 1, 0, 1)
+    barAlignmentDot:SetPoint("CENTER", barFrame, "CENTER", 0, 0)
+    barAlignmentDot:SetDrawLayer("OVERLAY", 7)
+    barAlignmentDot:Hide()
 
     for index = 1, MAX_TICK_MARKS do
         local pct = (index * 25)
@@ -1769,28 +2314,61 @@ UpdateBarDisplay = function()
     end
     local label = GetStageLabel(stage)
     local barWidth = (barFrame and barFrame.GetWidth and barFrame:GetWidth()) or settings.width
+    local barHeight = (barFrame and barFrame.GetHeight and barFrame:GetHeight()) or settings.height
     local innerFillWidth = math.max(0, barWidth - 2 * FILL_INSET)
+    local innerFillHeight = math.max(0, barHeight - 2 * FILL_INSET)
+    local isVertical = settings.orientation == ORIENTATION_VERTICAL
 
     if barFill then
         local width = innerFillWidth * (pct / 100)
+        local height = innerFillHeight * (pct / 100)
         local shouldHideFill = (pct <= 0) or (not hasActiveQuest and not forceKillStage and not forceAmbushAlert)
         if shouldHideFill then
             barFill:SetWidth(0)
+            barFill:SetHeight(0)
             barFill:Hide()
             if barSpark then
                 barSpark:Hide()
             end
         else
-            barFill:SetWidth(math.max(1, width))
+            barFill:ClearAllPoints()
+            if isVertical then
+                barFill:SetWidth(innerFillWidth)
+                barFill:SetHeight(math.max(1, height))
+                if settings.verticalFillDirection == FILL_DIRECTION_DOWN then
+                    barFill:SetPoint("TOPLEFT", barFrame, "TOPLEFT", FILL_INSET, -FILL_INSET)
+                else
+                    barFill:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", FILL_INSET, FILL_INSET)
+                end
+            else
+                barFill:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", FILL_INSET, FILL_INSET)
+                barFill:SetWidth(math.max(1, width))
+                barFill:SetHeight(innerFillHeight)
+            end
             barFill:Show()
             if barSpark and settings.showSparkLine then
                 local sparkWidth = 2
-                local sparkX = FILL_INSET + math.max(0, width - sparkWidth)
-                if pct >= 100 then
-                    sparkX = barWidth - FILL_INSET - sparkWidth
-                end
                 barSpark:ClearAllPoints()
-                barSpark:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", sparkX, FILL_INSET)
+                if isVertical then
+                    local sparkY
+                    if settings.verticalFillDirection == FILL_DIRECTION_DOWN then
+                        sparkY = barHeight - FILL_INSET - math.max(1, height)
+                    else
+                        sparkY = FILL_INSET + math.max(0, height - sparkWidth)
+                    end
+                    if pct >= 100 and settings.verticalFillDirection == FILL_DIRECTION_DOWN then
+                        sparkY = FILL_INSET
+                    elseif pct >= 100 then
+                        sparkY = barHeight - FILL_INSET - sparkWidth
+                    end
+                    barSpark:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", FILL_INSET, sparkY)
+                else
+                    local sparkX = FILL_INSET + math.max(0, width - sparkWidth)
+                    if pct >= 100 then
+                        sparkX = barWidth - FILL_INSET - sparkWidth
+                    end
+                    barSpark:SetPoint("BOTTOMLEFT", barFrame, "BOTTOMLEFT", sparkX, FILL_INSET)
+                end
                 barSpark:Show()
             elseif barSpark then
                 barSpark:Hide()
@@ -1840,6 +2418,17 @@ UpdateBarDisplay = function()
         suffixText = label
     end
 
+    local verticalAlignMode = nil
+    local verticalTextSide = settings.verticalTextSide or "right"
+    if isVertical then
+        verticalAlignMode = settings.verticalTextAlign or "separate"
+        if verticalAlignMode == "top_suffix_only" or verticalAlignMode == "bottom_suffix_only" then
+            prefixText = ""
+        elseif verticalAlignMode == "top_prefix_only" or verticalAlignMode == "bottom_prefix_only" then
+            suffixText = ""
+        end
+    end
+
     local centeredText = suffixText
     if prefixText ~= "" and suffixText ~= "" then
         centeredText = prefixText .. " " .. suffixText
@@ -1849,38 +2438,85 @@ UpdateBarDisplay = function()
 
     -- Apply label mode: stageLabels = Suffix (right), stageSuffixLabels = Prefix (left)
     local lm = settings.stageLabelMode or LABEL_MODE_CENTER
+    if settings.orientation == ORIENTATION_VERTICAL then
+        lm = LABEL_MODE_SEPARATE
+    end
+    local function LabelOut(text)
+        if settings.orientation == ORIENTATION_VERTICAL and not (stageText and stageText.SetRotation) then
+            return ToVerticalText(text)
+        end
+        return text
+    end
     if lm == LABEL_MODE_NONE then
         stageText:SetText("") stageText:Hide()
         if stageSuffixText then stageSuffixText:SetText("") stageSuffixText:Hide() end
     elseif lm == LABEL_MODE_SEPARATE then
-        if prefixText ~= "" then stageText:SetText(prefixText) stageText:Show()
-        else stageText:SetText("") stageText:Hide() end
-        if stageSuffixText then
-            if suffixText ~= "" then stageSuffixText:SetText(suffixText) stageSuffixText:Show()
-            else stageSuffixText:SetText("") stageSuffixText:Hide() end
+        local boundaryVerticalMode = isVertical
+            and (verticalTextSide == "left" or verticalTextSide == "right")
+            and (verticalAlignMode == "top" or verticalAlignMode == "middle" or verticalAlignMode == "bottom")
+        local boundaryVerticalText = nil
+        if boundaryVerticalMode then
+            if prefixText ~= "" and suffixText ~= "" then
+                boundaryVerticalText = centeredText
+            elseif prefixText ~= "" then
+                boundaryVerticalText = prefixText
+            elseif suffixText ~= "" then
+                boundaryVerticalText = suffixText
+            end
+        end
+
+        if boundaryVerticalMode then
+            if boundaryVerticalText ~= nil and boundaryVerticalText ~= "" then
+                stageText:SetText(LabelOut(boundaryVerticalText))
+                stageText:Show()
+            else
+                stageText:SetText("")
+                stageText:Hide()
+            end
+            if stageSuffixText then
+                stageSuffixText:SetText("")
+                stageSuffixText:Hide()
+            end
+        else
+            if prefixText ~= "" then stageText:SetText(LabelOut(prefixText)) stageText:Show()
+            else stageText:SetText("") stageText:Hide() end
+            if stageSuffixText then
+                if suffixText ~= "" then stageSuffixText:SetText(LabelOut(suffixText)) stageSuffixText:Show()
+                else stageSuffixText:SetText("") stageSuffixText:Hide() end
+            end
         end
     elseif lm == LABEL_MODE_LEFT then
-        if prefixText ~= "" then stageText:SetText(prefixText) stageText:Show()
+        if prefixText ~= "" then stageText:SetText(LabelOut(prefixText)) stageText:Show()
+        else stageText:SetText("") stageText:Hide() end
+        if stageSuffixText then stageSuffixText:SetText("") stageSuffixText:Hide() end
+    elseif lm == LABEL_MODE_LEFT_COMBINED then
+        if centeredText ~= "" then stageText:SetText(LabelOut(centeredText)) stageText:Show()
         else stageText:SetText("") stageText:Hide() end
         if stageSuffixText then stageSuffixText:SetText("") stageSuffixText:Hide() end
     elseif lm == LABEL_MODE_LEFT_SUFFIX then
-        if suffixText ~= "" then stageText:SetText(suffixText) stageText:Show()
+        if suffixText ~= "" then stageText:SetText(LabelOut(suffixText)) stageText:Show()
         else stageText:SetText("") stageText:Hide() end
         if stageSuffixText then stageSuffixText:SetText("") stageSuffixText:Hide() end
     elseif lm == LABEL_MODE_RIGHT then
         stageText:SetText("") stageText:Hide()
         if stageSuffixText then
-            if suffixText ~= "" then stageSuffixText:SetText(suffixText) stageSuffixText:Show()
+            if suffixText ~= "" then stageSuffixText:SetText(LabelOut(suffixText)) stageSuffixText:Show()
+            else stageSuffixText:SetText("") stageSuffixText:Hide() end
+        end
+    elseif lm == LABEL_MODE_RIGHT_COMBINED then
+        stageText:SetText("") stageText:Hide()
+        if stageSuffixText then
+            if centeredText ~= "" then stageSuffixText:SetText(LabelOut(centeredText)) stageSuffixText:Show()
             else stageSuffixText:SetText("") stageSuffixText:Hide() end
         end
     elseif lm == LABEL_MODE_RIGHT_PREFIX then
         stageText:SetText("") stageText:Hide()
         if stageSuffixText then
-            if prefixText ~= "" then stageSuffixText:SetText(prefixText) stageSuffixText:Show()
+            if prefixText ~= "" then stageSuffixText:SetText(LabelOut(prefixText)) stageSuffixText:Show()
             else stageSuffixText:SetText("") stageSuffixText:Hide() end
         end
     else
-        if centeredText ~= "" then stageText:SetText(centeredText) stageText:Show()
+        if centeredText ~= "" then stageText:SetText(LabelOut(centeredText)) stageText:Show()
         else stageText:SetText("") stageText:Hide() end
         if stageSuffixText then stageSuffixText:SetText("") stageSuffixText:Hide() end
     end
@@ -2049,6 +2685,23 @@ local function ApplyWidgetFrameSuppression(frameRef, suppress)
             or string.find(lowered, "glow", 1, true) ~= nil
     end
 
+    local function shouldNeverSuppress(target)
+        if not target then
+            return true
+        end
+
+        local name = target.GetName and target:GetName() or ""
+        local lowered = string.lower(tostring(name or ""))
+        if lowered == "" then
+            return false
+        end
+
+        return string.find(lowered, "tooltip", 1, true) ~= nil
+            or string.find(lowered, "moneyframe", 1, true) ~= nil
+            or string.find(lowered, "lootframe", 1, true) ~= nil
+            or string.find(lowered, "merchantframe", 1, true) ~= nil
+    end
+
     local function applyHardVisibilitySuppression(target)
         if not target or not target.Hide then
             return
@@ -2112,6 +2765,10 @@ local function ApplyWidgetFrameSuppression(frameRef, suppress)
 
     local function applyToFrameTree(node, depth)
         if not node or visited[node] or depth > 8 then
+            return
+        end
+
+        if shouldNeverSuppress(node) then
             return
         end
 
@@ -2218,13 +2875,9 @@ ShouldSuppressDefaultPreyEncounter = function()
         return false
     end
 
-    -- Keep encounter suppression tightly scoped to active prey hunt flow only:
-    -- active quest + in prey zone + stage above opening state.
-    local inPreyZone = state and state.inPreyZone == true
-    local currentStage = GetStageFromState(state and state.progressState)
-    local isActiveHuntStage = currentStage > 1
-
-    return inPreyZone and isActiveHuntStage
+    -- Suppress default encounter visuals whenever an active prey quest is tracked.
+    -- This avoids zone-specific regressions when Blizzard changes map/widget behavior.
+    return true
 end
 
 local function TryGetPreyQuestWaypoint(questID)
@@ -2581,7 +3234,6 @@ ApplyDefaultPreyIconVisibility = function()
             return
         end
 
-        local widgetIDText = tostring(widgetID or "")
         local visited = {}
         local function scan(node, depth)
             if not node or visited[node] or depth > 6 then
@@ -2591,9 +3243,9 @@ ApplyDefaultPreyIconVisibility = function()
             visited[node] = true
             local name = node.GetName and node:GetName() or ""
             local lowered = string.lower(tostring(name))
-            local isRelated = (widgetIDText ~= "" and string.find(name, widgetIDText, 1, true) ~= nil)
-                or string.find(lowered, "prey", 1, true) ~= nil
-                or string.find(lowered, "hunt", 1, true) ~= nil
+            local isWidgetName = string.find(lowered, "uiwidget", 1, true) ~= nil
+            local isRelated = isWidgetName
+                and (string.find(lowered, "prey", 1, true) ~= nil or string.find(lowered, "hunt", 1, true) ~= nil)
 
             if isRelated then
                 ApplyWidgetFrameSuppression(node, suppressEncounter)
@@ -4223,8 +4875,7 @@ EnsureOptionsPanel = function()
     }
 
     local percentDisplayOptions = {
-        [PERCENT_DISPLAY_INSIDE] = { text = "In Bar (Above Fill)" },
-        [PERCENT_DISPLAY_INSIDE_BELOW] = { text = "In Bar (Below Fill)" },
+        [PERCENT_DISPLAY_INSIDE] = { text = "In Bar" },
         [PERCENT_DISPLAY_UNDER_TICKS] = { text = "Under Ticks" },
         [PERCENT_DISPLAY_BELOW_BAR] = { text = "Below Bar" },
         [PERCENT_DISPLAY_OFF] = { text = "Off" },
@@ -4475,17 +5126,27 @@ Preydator.Constants = {
     PERCENT_DISPLAY_INSIDE = PERCENT_DISPLAY_INSIDE,
     PERCENT_DISPLAY_INSIDE_BELOW = PERCENT_DISPLAY_INSIDE_BELOW,
     PERCENT_DISPLAY_BELOW_BAR = PERCENT_DISPLAY_BELOW_BAR,
+    PERCENT_DISPLAY_ABOVE_BAR = PERCENT_DISPLAY_ABOVE_BAR,
+    PERCENT_DISPLAY_ABOVE_TICKS = PERCENT_DISPLAY_ABOVE_TICKS,
     PERCENT_DISPLAY_UNDER_TICKS = PERCENT_DISPLAY_UNDER_TICKS,
     PERCENT_DISPLAY_OFF = PERCENT_DISPLAY_OFF,
     LAYER_MODE_ABOVE = LAYER_MODE_ABOVE,
     LAYER_MODE_BELOW = LAYER_MODE_BELOW,
     LABEL_MODE_CENTER = LABEL_MODE_CENTER,
     LABEL_MODE_LEFT = LABEL_MODE_LEFT,
+    LABEL_MODE_LEFT_COMBINED = LABEL_MODE_LEFT_COMBINED,
     LABEL_MODE_RIGHT = LABEL_MODE_RIGHT,
+    LABEL_MODE_RIGHT_COMBINED = LABEL_MODE_RIGHT_COMBINED,
     LABEL_MODE_SEPARATE = LABEL_MODE_SEPARATE,
     LABEL_MODE_LEFT_SUFFIX = LABEL_MODE_LEFT_SUFFIX,
     LABEL_MODE_RIGHT_PREFIX = LABEL_MODE_RIGHT_PREFIX,
     LABEL_MODE_NONE = LABEL_MODE_NONE,
+    LABEL_ROW_ABOVE = LABEL_ROW_ABOVE,
+    LABEL_ROW_BELOW = LABEL_ROW_BELOW,
+    ORIENTATION_HORIZONTAL = ORIENTATION_HORIZONTAL,
+    ORIENTATION_VERTICAL = ORIENTATION_VERTICAL,
+    FILL_DIRECTION_UP = FILL_DIRECTION_UP,
+    FILL_DIRECTION_DOWN = FILL_DIRECTION_DOWN,
     TEXTURE_PRESETS = TEXTURE_PRESETS,
     FONT_PRESETS = FONT_PRESETS,
 }

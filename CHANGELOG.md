@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.5.5 - 2026-03-13
+
+### Added
+- Expanded vertical bar setup in Display settings with dedicated controls for orientation, fill direction, vertical scale, text side/alignment, and vertical percent behavior.
+- Added vertical tick-percent workflow so percent labels can be shown at tick marks and replace the single vertical percent text when enabled.
+
+### Changed
+- Repurposed Display tab control from `Tick Mark Layer` to `Text Display` (`Above Bar` / `Below Bar`) for prefix/suffix stage name placement.
+- `Vertical Percent Side` is now focused on tick-mark behavior (`Vertical Percent Tick Mark`) and no longer drives single percent placement logic.
+- `Above Ticks` percent mode now renders tick-mark percentages above the bar instead of showing one top-aligned percent value.
+- Tick mark rendering now stays above fill by default for consistent readability.
+
+### Fixed
+- Corrected a Lua syntax regression in display settings normalization caused by an incomplete conditional branch (`Missed symbol 'then'`).
+
+## 1.5.1 - 2026-03-13
+
+### Added
+- New label modes for combined output on one side: `Left (Prefix + Suffix)` and `Right (Prefix + Suffix)`.
+- New percent display modes: `Above Bar` and `Above Ticks`.
+- New text layout control: `Prefix/Suffix Row` with `Above Bar` or `Below Bar` placement.
+- New orientation controls in Display settings: `Bar Orientation` (`Horizontal` or `Vertical`) and `Vertical Fill Direction` (`Fill Up` or `Fill Down`).
+
+### Changed
+- Text tab right column is now aligned with left-column prefix/suffix sections for a more symmetrical layout.
+- Vertical orientation now supports vertical prefix/suffix rendering while percent text remains horizontal.
+
+### Notes
+- Vertical mode is implemented as a practical beta-style option due Blizzard UI constraints around true font rotation; labels are rendered in stacked vertical text.
+
 ## 1.5.0 - 2026-03-13
 
 ### Added

@@ -21,12 +21,14 @@ Preydator is a retail World of Warcraft addon built specifically for Prey Hunts.
 
 Blizzard does not expose true percentage completion for Prey Hunts. Preydator tracks stage transitions directly, with clear fallback progress display options.
 
-## Major features (v1.5.0)
+## Major features (v1.5.5)
 
 - Tabbed settings UI: General, Display, Text, Audio, Advanced
 - Edit Mode quick-settings window with click-to-open behavior
+- Vertical bar mode with dedicated settings: orientation, fill direction, vertical scale, text side/alignment, and vertical percent controls
 - Label system with prefix/suffix modes (centered, left/right, separate, none)
-- Percent display modes and tick layering controls
+- Percent display modes including Above Ticks behavior using per-tick labels
+- Text Display row placement for stage names (Above Bar / Below Bar)
 - Tick color, border color, and linked border-to-fill behavior
 - Optional spark line at the fill edge (toggleable)
 - Adjustable bar width, height, scale, and font size

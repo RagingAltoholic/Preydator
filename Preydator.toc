@@ -1,8 +1,8 @@
-## Interface: 120001, 120002
+## Interface: 120001, 120005
 ## Title: Preydator
 ## Notes: Tracks Prey Hunt progress with customizable visuals and sounds.
 ## Author: RagingAltoholic
-## Version: 1.5.0
+## Version: 1.5.5
 ## SavedVariables: PreydatorDB, PreydatorDebugDB
 ## OptionalDeps: Blizzard_Settings
 

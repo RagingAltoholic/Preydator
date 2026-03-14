@@ -33,10 +33,7 @@ local function SendToErrorHandler(reportText)
         local startPos = ((index - 1) * chunkSize) + 1
         local endPos = math.min(index * chunkSize, length)
         local chunk = string.sub(reportText, startPos, endPos)
-        local payload = string.format("%s [%d/%d]\n%s", header, index, chunks, chunk)
-        local okSend = pcall(function()
-            handler(payload)
-        end)
+        local okSend = pcall(handler, string.format("%s [%d/%d]\n%s", header, index, chunks, chunk))
 
         if not okSend then
             return false, "handler failed on chunk " .. tostring(index)
@@ -55,6 +52,25 @@ local function BuildInspectReport()
     local state = (type(Preydator.GetState) == "function") and Preydator.GetState() or {}
     local settings = (type(Preydator.GetSettings) == "function") and Preydator.GetSettings() or {}
     local barFrame = (type(Preydator.GetBarFrame) == "function") and Preydator.GetBarFrame() or nil
+    local labelFrames = (type(Preydator.GetLabelFrames) == "function") and Preydator.GetLabelFrames() or nil
+
+    local function FormatPoint(frameRef)
+        if not frameRef or not frameRef.GetPoint then
+            return "<no-frame>"
+        end
+
+        local ok, point, relativeTo, relativePoint, xOfs, yOfs = pcall(frameRef.GetPoint, frameRef, 1)
+        if not ok then
+            return "<point-error>"
+        end
+
+        local relName = "<nil>"
+        if relativeTo and relativeTo.GetName then
+            relName = relativeTo:GetName() or "<unnamed>"
+        end
+
+        return string.format("%s -> %s:%s (%s,%s)", tostring(point), tostring(relName), tostring(relativePoint), tostring(xOfs), tostring(yOfs))
+    end
 
     local liveQuestID = (C_QuestLog and C_QuestLog.GetActivePreyQuest) and C_QuestLog.GetActivePreyQuest() or nil
     local hasActiveQuest = type(liveQuestID) == "number" and liveQuestID > 0
@@ -75,6 +91,17 @@ local function BuildInspectReport()
     add("- settings size width=" .. tostring(settings and settings.width)
         .. " | height=" .. tostring(settings and settings.height)
         .. " | scale=" .. tostring(settings and settings.scale))
+    add("- settings layout"
+        .. " | orientation=" .. tostring(settings and settings.orientation)
+        .. " | fillDir=" .. tostring(settings and settings.verticalFillDirection)
+        .. " | labelMode=" .. tostring(settings and settings.stageLabelMode)
+        .. " | labelRow=" .. tostring(settings and settings.labelRowPosition)
+        .. " | vTextAlign=" .. tostring(settings and settings.verticalTextAlign)
+        .. " | vTextSide=" .. tostring(settings and settings.verticalTextSide)
+        .. " | vTextOffset=" .. tostring(settings and settings.verticalTextOffset)
+        .. " | vPctDisplay=" .. tostring(settings and settings.verticalPercentDisplay)
+        .. " | vPctSide=" .. tostring(settings and settings.verticalPercentSide)
+        .. " | vPctOffset=" .. tostring(settings and settings.verticalPercentOffset))
 
     if barFrame then
         local liveWidth = barFrame.GetWidth and barFrame:GetWidth() or "?"
@@ -89,6 +116,30 @@ local function BuildInspectReport()
             .. " | effectiveScale=" .. tostring(liveEffectiveScale))
     else
         add("- bar frame unavailable")
+    end
+
+    if type(labelFrames) == "table" then
+        local prefix = labelFrames.prefix
+        local suffix = labelFrames.suffix
+        local percent = labelFrames.percent
+        local centerDot = labelFrames.centerDot
+
+        add("- prefix"
+            .. " | shown=" .. tostring(prefix and prefix.IsShown and prefix:IsShown() or false)
+            .. " | text='" .. tostring(prefix and prefix.GetText and prefix:GetText() or "") .. "'"
+            .. " | point=" .. FormatPoint(prefix))
+        add("- suffix"
+            .. " | shown=" .. tostring(suffix and suffix.IsShown and suffix:IsShown() or false)
+            .. " | text='" .. tostring(suffix and suffix.GetText and suffix:GetText() or "") .. "'"
+            .. " | point=" .. FormatPoint(suffix))
+        add("- percent"
+            .. " | shown=" .. tostring(percent and percent.IsShown and percent:IsShown() or false)
+            .. " | text='" .. tostring(percent and percent.GetText and percent:GetText() or "") .. "'"
+            .. " | point=" .. FormatPoint(percent))
+        add("- centerDot"
+            .. " | enabledSetting=" .. tostring(settings and settings.showAlignmentDot == true)
+            .. " | shown=" .. tostring(centerDot and centerDot.IsShown and centerDot:IsShown() or false)
+            .. " | point=" .. FormatPoint(centerDot))
     end
 
     local reportText = table.concat(lines, "\n")

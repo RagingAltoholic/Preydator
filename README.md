@@ -2,7 +2,7 @@
 
 Preydator is a focused Prey Hunt companion addon for World of Warcraft, featuring Predator-inspired audio cues, a customizable hunt progress bar, and stage-based tracking built from Blizzard quest/widget APIs.
 
-Current release: `v1.5.0`
+Current release: `v1.5.5`
 
 ## What Preydator tracks
 
@@ -22,7 +22,7 @@ Important: Blizzard does not expose a true percent completion for Prey Hunts. Pr
 3. **Echoes of the Kill**
 4. **Feast of the Fang**
 
-## UI and layout features (1.5.0)
+## UI and layout features (1.5.5)
 
 - Modular tabbed settings panel: `General`, `Display`, `Text`, `Audio`, `Advanced`
 - Compact Edit Mode quick-settings window
@@ -30,6 +30,7 @@ Important: Blizzard does not expose a true percent completion for Prey Hunts. Pr
 - Outside-click dismiss behavior while Edit Mode quick-settings is open
 - Lock/unlock positioning and persistent center-relative coordinates
 - Display controls: width, height, scale, font size
+- Vertical bar mode controls: orientation, fill direction, vertical scale, dedicated width/height, text side/alignment, and vertical percent controls
 
 ## Display customization
 
@@ -42,12 +43,14 @@ Important: Blizzard does not expose a true percent completion for Prey Hunts. Pr
 	- Tick mark color
 	- Border color (optional linked-to-fill behavior)
 - Percent display modes:
-	- In Bar (Above Fill)
-	- In Bar (Below Fill)
+	- In Bar
+	- Above Bar
+	- Above Ticks
 	- Under Ticks
 	- Below Bar
 	- Off
-- Tick mark layer mode: `Above Fill` or `Below Fill`
+- Text Display mode for stage names: `Above Bar` or `Below Bar`
+- Tick mark labels can be used as the percent display in vertical mode (`Show Percentage at Tick Marks`)
 - `Display Spark Line` toggle (default: off)
 - Fill and tick rendering inset so visuals stay inside the border at all scales
 

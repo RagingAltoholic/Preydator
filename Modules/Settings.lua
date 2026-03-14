@@ -23,7 +23,7 @@ local OpacitySliderFrame = _G.OpacitySliderFrame
 local COLUMN_LEFT_X = 18
 local COLUMN_RIGHT_X = 364
 local CONTROL_WIDTH = 250
-local TAB_WIDTH = 120
+local TAB_WIDTH = 101
 local PANEL_WIDTH = 760
 local PANEL_HEIGHT = 620
 
@@ -49,11 +49,19 @@ local CHANNEL_OPTIONS = {
 }
 
 local PERCENT_DISPLAY_OPTIONS = {
-    [constants.PERCENT_DISPLAY_INSIDE] = { text = "In Bar (Above Fill)" },
-    [constants.PERCENT_DISPLAY_INSIDE_BELOW] = { text = "In Bar (Below Fill)" },
+    [constants.PERCENT_DISPLAY_INSIDE] = { text = "In Bar" },
+    [constants.PERCENT_DISPLAY_ABOVE_BAR] = { text = "Above Bar" },
+    [constants.PERCENT_DISPLAY_ABOVE_TICKS] = { text = "Above Ticks" },
     [constants.PERCENT_DISPLAY_UNDER_TICKS] = { text = "Under Ticks" },
     [constants.PERCENT_DISPLAY_BELOW_BAR] = { text = "Below Bar" },
     [constants.PERCENT_DISPLAY_OFF] = { text = "Off" },
+}
+
+local VERTICAL_PERCENT_DISPLAY_OPTIONS = {
+    [constants.PERCENT_DISPLAY_OFF]       = { text = "Off" },
+    [constants.PERCENT_DISPLAY_ABOVE_BAR] = { text = "Above" },
+    [constants.PERCENT_DISPLAY_INSIDE]    = { text = "Inside" },
+    [constants.PERCENT_DISPLAY_BELOW_BAR] = { text = "Below" },
 }
 
 local LAYER_MODE_OPTIONS = {
@@ -69,11 +77,50 @@ local PROGRESS_SEGMENT_OPTIONS = {
 local LABEL_MODE_OPTIONS = {
     [constants.LABEL_MODE_CENTER]       = { text = "Centered" },
     [constants.LABEL_MODE_LEFT]         = { text = "Left (Prefix only)" },
+    [constants.LABEL_MODE_LEFT_COMBINED] = { text = "Left (Prefix + Suffix)" },
     [constants.LABEL_MODE_LEFT_SUFFIX]  = { text = "Left (Suffix only)" },
     [constants.LABEL_MODE_RIGHT]        = { text = "Right (Suffix only)" },
+    [constants.LABEL_MODE_RIGHT_COMBINED] = { text = "Right (Prefix + Suffix)" },
     [constants.LABEL_MODE_RIGHT_PREFIX] = { text = "Right (Prefix only)" },
     [constants.LABEL_MODE_SEPARATE]     = { text = "Separate (Prefix + Suffix)" },
     [constants.LABEL_MODE_NONE]         = { text = "No Text" },
+}
+
+local LABEL_ROW_OPTIONS = {
+    [constants.LABEL_ROW_ABOVE] = { text = "Above Bar" },
+    [constants.LABEL_ROW_BELOW] = { text = "Below Bar" },
+}
+
+local ORIENTATION_OPTIONS = {
+    [constants.ORIENTATION_HORIZONTAL] = { text = "Horizontal" },
+    [constants.ORIENTATION_VERTICAL] = { text = "Vertical" },
+}
+
+local VERTICAL_FILL_DIRECTION_OPTIONS = {
+    [constants.FILL_DIRECTION_UP] = { text = "Fill Up" },
+    [constants.FILL_DIRECTION_DOWN] = { text = "Fill Down" },
+}
+
+local VERTICAL_SIDE_OPTIONS = {
+    left = { text = "Left" },
+    right = { text = "Right" },
+}
+
+local VERTICAL_PERCENT_SIDE_OPTIONS = {
+    left   = { text = "Left" },
+    center = { text = "Center" },
+    right  = { text = "Right" },
+}
+
+local VERTICAL_TEXT_ALIGN_OPTIONS = {
+    top = { text = "Top Align" },
+    middle = { text = "Middle Align" },
+    bottom = { text = "Bottom Align" },
+    top_prefix_only = { text = "Top Prefix Only" },
+    top_suffix_only = { text = "Top Suffix Only" },
+    bottom_prefix_only = { text = "Bottom Prefix Only" },
+    bottom_suffix_only = { text = "Bottom Suffix Only" },
+    separate = { text = "Separate Prefix/Suffix" },
 }
 
 local function Clamp(value, minValue, maxValue)
@@ -274,6 +321,17 @@ local function CreateSlider(parent, x, y, label, minValue, maxValue, step, gette
         RefreshFromValue(getter())
     end
 
+    function container:PreydatorSetEnabled(enabled)
+        local isEnabled = enabled and true or false
+        self:SetAlpha(isEnabled and 1 or 0.45)
+        slider:SetEnabled(isEnabled)
+        valueBox:SetEnabled(isEnabled)
+        if valueBox.SetTextColor then
+            local channel = isEnabled and 1 or 0.65
+            valueBox:SetTextColor(channel, channel, channel)
+        end
+    end
+
     container:PreydatorRefresh()
     return container
 end
@@ -323,6 +381,13 @@ local function CreateDropdown(parent, x, y, label, width, options, getter, sette
     end)
 
     dropdown.PreydatorRefresh = RefreshText
+    function dropdown:PreydatorSetEnabled(enabled)
+        local isEnabled = enabled and true or false
+        self:SetAlpha(isEnabled and 1 or 0.45)
+        if self.EnableMouse then
+            self:EnableMouse(isEnabled)
+        end
+    end
     RefreshText()
     return dropdown
 end
@@ -487,17 +552,28 @@ end
 
 local function BuildDisplayPage(owner, parent)
     local db = api.GetSettings()
+
+    local function IsHorizontalMode()
+        return (db.orientation or constants.ORIENTATION_HORIZONTAL) ~= constants.ORIENTATION_VERTICAL
+    end
+
     CreateSectionTitle(parent, COLUMN_LEFT_X, -10, "Bar Size")
-    RegisterRefresher(owner, CreateSlider(parent, COLUMN_LEFT_X, -40, "Scale", 0.5, 2, 0.05, function() return db.scale end, function(value)
+    local scaleSlider = RegisterRefresher(owner, CreateSlider(parent, COLUMN_LEFT_X, -40, "Scale", 0.5, 2, 0.05, function() return db.scale end, function(value)
         db.scale = value
-        api.ApplyBarSettings()
+        api.RequestBarRefresh()
     end, function(value) return string.format("%.2f", value) end))
-    RegisterRefresher(owner, CreateSlider(parent, COLUMN_LEFT_X, -100, "Width", 160, 500, 1, function() return db.width end, function(value)
-        db.width = math.floor(value + 0.5)
+    local widthSlider = RegisterRefresher(owner, CreateSlider(parent, COLUMN_LEFT_X, -100, "Width", 100, 350, 1, function() return db.horizontalWidth or db.width end, function(value)
+        db.horizontalWidth = math.floor(value + 0.5)
+        if IsHorizontalMode() then
+            db.width = db.horizontalWidth
+        end
         api.RequestBarRefresh()
     end, function(value) return tostring(math.floor(value + 0.5)) end))
-    RegisterRefresher(owner, CreateSlider(parent, COLUMN_LEFT_X, -160, "Height", 10, 40, 1, function() return db.height end, function(value)
-        db.height = math.floor(value + 0.5)
+    local heightSlider = RegisterRefresher(owner, CreateSlider(parent, COLUMN_LEFT_X, -160, "Height", 10, 60, 1, function() return db.horizontalHeight or db.height end, function(value)
+        db.horizontalHeight = math.floor(value + 0.5)
+        if IsHorizontalMode() then
+            db.height = db.horizontalHeight
+        end
         api.RequestBarRefresh()
     end, function(value) return tostring(math.floor(value + 0.5)) end))
     RegisterRefresher(owner, CreateSlider(parent, COLUMN_LEFT_X, -220, "Font Size", 8, 24, 1, function() return db.fontSize end, function(value)
@@ -505,18 +581,48 @@ local function BuildDisplayPage(owner, parent)
         api.RequestBarRefresh()
     end, function(value) return tostring(math.floor(value + 0.5)) end))
 
+    local widthBaseRefresh = widthSlider.PreydatorRefresh
+    widthSlider.PreydatorRefresh = function(self)
+        widthBaseRefresh(self)
+        if self.PreydatorSetEnabled then
+            self:PreydatorSetEnabled(IsHorizontalMode())
+        end
+    end
+
+    local heightBaseRefresh = heightSlider.PreydatorRefresh
+    heightSlider.PreydatorRefresh = function(self)
+        heightBaseRefresh(self)
+        if self.PreydatorSetEnabled then
+            self:PreydatorSetEnabled(IsHorizontalMode())
+        end
+    end
+
+    local scaleBaseRefresh = scaleSlider.PreydatorRefresh
+    scaleSlider.PreydatorRefresh = function(self)
+        scaleBaseRefresh(self)
+        if self.PreydatorSetEnabled then
+            self:PreydatorSetEnabled(IsHorizontalMode())
+        end
+    end
+
     CreateSectionTitle(parent, COLUMN_LEFT_X, -286, "Progress Display")
-    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -316, "Percent Display", 170, PERCENT_DISPLAY_OPTIONS, function()
+    local percentDisplayDropdown = RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -316, "Percent Display", 170, PERCENT_DISPLAY_OPTIONS, function()
         return db.percentDisplay
     end, function(key)
+        if not IsHorizontalMode() then
+            return
+        end
         db.percentDisplay = key
         api.NormalizeDisplaySettings()
         api.RequestBarRefresh()
     end))
-    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -380, "Tick Mark Layer", 170, LAYER_MODE_OPTIONS, function()
-        return db.tickLayerMode
+    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -380, "Text Display", 170, LABEL_ROW_OPTIONS, function()
+        return db.labelRowPosition
     end, function(key)
-        db.tickLayerMode = key
+        if not IsHorizontalMode() then
+            return
+        end
+        db.labelRowPosition = key
         api.NormalizeDisplaySettings()
         api.RequestBarRefresh()
     end))
@@ -527,6 +633,14 @@ local function BuildDisplayPage(owner, parent)
         api.NormalizeDisplaySettings()
         api.RequestBarRefresh()
     end))
+
+    local percentDisplayBaseRefresh = percentDisplayDropdown.PreydatorRefresh
+    percentDisplayDropdown.PreydatorRefresh = function(self)
+        percentDisplayBaseRefresh(self)
+        if self.PreydatorSetEnabled then
+            self:PreydatorSetEnabled(IsHorizontalMode())
+        end
+    end
 
     CreateSectionTitle(parent, COLUMN_RIGHT_X, -10, "Visual Style")
     RegisterRefresher(owner, CreateDropdown(parent, COLUMN_RIGHT_X, -40, "Texture", 170, TEXTURE_OPTIONS, function()
@@ -588,14 +702,246 @@ local function BuildDisplayPage(owner, parent)
     RegisterRefresher(owner, borderLinkCheck)
 end
 
+local function BuildVerticalPage(owner, parent)
+    local db = api.GetSettings()
+
+    local function IsVerticalMode()
+        return (db.orientation or constants.ORIENTATION_HORIZONTAL) == constants.ORIENTATION_VERTICAL
+    end
+
+    CreateSectionTitle(parent, COLUMN_LEFT_X, -10, "Vertical Mode")
+    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -40, "Bar Orientation", 170, ORIENTATION_OPTIONS, function()
+        return db.orientation
+    end, function(key)
+        db.orientation = key
+        api.NormalizeDisplaySettings()
+        api.RequestBarRefresh()
+        owner:RefreshControls()
+    end))
+
+    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -104, "Vertical Fill Direction", 170, VERTICAL_FILL_DIRECTION_OPTIONS, function()
+        return db.verticalFillDirection
+    end, function(key)
+        db.verticalFillDirection = key
+        api.NormalizeDisplaySettings()
+        api.RequestBarRefresh()
+    end))
+
+    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -168, "Vertical Text Side", 170, VERTICAL_SIDE_OPTIONS, function()
+        return db.verticalTextSide
+    end, function(key)
+        db.verticalTextSide = key
+        api.NormalizeDisplaySettings()
+        api.RequestBarRefresh()
+    end))
+
+    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -232, "Vertical Text Alignment", 190, VERTICAL_TEXT_ALIGN_OPTIONS, function()
+        return db.verticalTextAlign
+    end, function(key)
+        db.verticalTextAlign = key
+        api.NormalizeDisplaySettings()
+        api.RequestBarRefresh()
+    end))
+
+    local verticalPercentDisplayDropdown = RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -296, "Vertical Percent Display", 190, VERTICAL_PERCENT_DISPLAY_OPTIONS, function()
+        return db.verticalPercentDisplay
+    end, function(key)
+        db.verticalPercentDisplay = key
+        api.NormalizeDisplaySettings()
+        api.RequestBarRefresh()
+    end))
+
+    local verticalPercentSideDropdown = RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -360, "Vertical Percent Tick Mark", 170, VERTICAL_PERCENT_SIDE_OPTIONS, function()
+        return db.verticalPercentSide
+    end, function(key)
+        db.verticalPercentSide = key
+        api.NormalizeDisplaySettings()
+        api.RequestBarRefresh()
+    end))
+
+    local verticalTickPercentCheck = RegisterRefresher(owner, CreateCheckbox(parent, COLUMN_LEFT_X, -410, "Show Percentage at Tick Marks", function()
+        return db.showVerticalTickPercent == true
+    end, function(value)
+        db.showVerticalTickPercent = value and true or false
+        api.NormalizeDisplaySettings()
+        api.RequestBarRefresh()
+    end))
+
+    local note = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    note:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_RIGHT_X, -44)
+    note:SetWidth(260)
+    note:SetJustifyH("LEFT")
+    note:SetWordWrap(true)
+    note:SetText("Vertical Percent Offset applies to vertical side/tick-mark side placements. Use tick marks to replace the single percent value.")
+
+    CreateSectionTitle(parent, COLUMN_RIGHT_X, -10, "Vertical Dimensions")
+    local verticalScaleSlider = RegisterRefresher(owner, CreateSlider(parent, COLUMN_RIGHT_X, -80, "Scale", 0.5, 2, 0.05, function()
+        return db.verticalScale or 0.9
+    end, function(value)
+        db.verticalScale = value
+        api.RequestBarRefresh()
+    end, function(value)
+        return string.format("%.2f", value)
+    end))
+
+    local verticalWidthSlider = RegisterRefresher(owner, CreateSlider(parent, COLUMN_RIGHT_X, -140, "Width", 10, 60, 1, function()
+        return db.verticalWidth or db.width
+    end, function(value)
+        db.verticalWidth = math.floor(value + 0.5)
+        if IsVerticalMode() then
+            db.width = db.verticalWidth
+        end
+        api.RequestBarRefresh()
+    end, function(value)
+        return tostring(math.floor(value + 0.5))
+    end))
+
+    local verticalHeightSlider = RegisterRefresher(owner, CreateSlider(parent, COLUMN_RIGHT_X, -200, "Height", 100, 350, 1, function()
+        return db.verticalHeight or db.height
+    end, function(value)
+        db.verticalHeight = math.floor(value + 0.5)
+        if IsVerticalMode() then
+            db.height = db.verticalHeight
+        end
+        api.RequestBarRefresh()
+    end, function(value)
+        return tostring(math.floor(value + 0.5))
+    end))
+
+    local textOffsetSlider = RegisterRefresher(owner, CreateSlider(parent, COLUMN_RIGHT_X, -264, "Vertical Text Offset", 2, 60, 1, function()
+        return db.verticalTextOffset or 10
+    end, function(value)
+        db.verticalTextOffset = math.floor(value + 0.5)
+        api.NormalizeDisplaySettings()
+        api.RequestBarRefresh()
+    end, function(value)
+        return tostring(math.floor(value + 0.5))
+    end))
+
+    local percentOffsetSlider = RegisterRefresher(owner, CreateSlider(parent, COLUMN_RIGHT_X, -328, "Vertical Percent Offset", 2, 60, 1, function()
+        return db.verticalPercentOffset or 10
+    end, function(value)
+        db.verticalPercentOffset = math.floor(value + 0.5)
+        api.NormalizeDisplaySettings()
+        api.RequestBarRefresh()
+    end, function(value)
+        return tostring(math.floor(value + 0.5))
+    end))
+
+    local function ApplyVerticalControlState()
+        local enabled = IsVerticalMode()
+        local percentMode = db.verticalPercentDisplay or constants.PERCENT_DISPLAY_INSIDE
+        local percentNotOff = percentMode ~= constants.PERCENT_DISPLAY_OFF
+        local textSide = db.verticalTextSide or "right"
+        local tickMarkSide = db.verticalPercentSide or "center"
+        local percentOffsetApplies = enabled and (
+            textSide == "left"
+            or textSide == "right"
+            or tickMarkSide == "left"
+            or tickMarkSide == "right"
+        )
+
+        if verticalPercentSideDropdown and verticalPercentSideDropdown.PreydatorSetEnabled then
+            verticalPercentSideDropdown:PreydatorSetEnabled(enabled and percentNotOff)
+        end
+        if verticalTickPercentCheck and verticalTickPercentCheck.PreydatorSetEnabled then
+            verticalTickPercentCheck:PreydatorSetEnabled(enabled and percentNotOff)
+        end
+        if textOffsetSlider.PreydatorSetEnabled then
+            textOffsetSlider:PreydatorSetEnabled(enabled)
+        end
+        if percentOffsetSlider.PreydatorSetEnabled then
+            percentOffsetSlider:PreydatorSetEnabled(percentOffsetApplies)
+        end
+        if verticalWidthSlider.PreydatorSetEnabled then
+            verticalWidthSlider:PreydatorSetEnabled(enabled)
+        end
+        if verticalHeightSlider.PreydatorSetEnabled then
+            verticalHeightSlider:PreydatorSetEnabled(enabled)
+        end
+        if verticalScaleSlider.PreydatorSetEnabled then
+            verticalScaleSlider:PreydatorSetEnabled(enabled)
+        end
+    end
+
+    local textOffsetBaseRefresh = textOffsetSlider.PreydatorRefresh
+    textOffsetSlider.PreydatorRefresh = function(self)
+        textOffsetBaseRefresh(self)
+        ApplyVerticalControlState()
+    end
+
+    local verticalPercentDisplayBaseRefresh = verticalPercentDisplayDropdown.PreydatorRefresh
+    verticalPercentDisplayDropdown.PreydatorRefresh = function(self)
+        verticalPercentDisplayBaseRefresh(self)
+        ApplyVerticalControlState()
+    end
+
+    local verticalPercentSideBaseRefresh = verticalPercentSideDropdown.PreydatorRefresh
+    verticalPercentSideDropdown.PreydatorRefresh = function(self)
+        verticalPercentSideBaseRefresh(self)
+        ApplyVerticalControlState()
+    end
+
+    local verticalTickPercentBaseRefresh = verticalTickPercentCheck.PreydatorRefresh
+    verticalTickPercentCheck.PreydatorRefresh = function(self)
+        verticalTickPercentBaseRefresh(self)
+        ApplyVerticalControlState()
+    end
+
+    local percentOffsetBaseRefresh = percentOffsetSlider.PreydatorRefresh
+    percentOffsetSlider.PreydatorRefresh = function(self)
+        percentOffsetBaseRefresh(self)
+        ApplyVerticalControlState()
+    end
+
+    local verticalWidthBaseRefresh = verticalWidthSlider.PreydatorRefresh
+    verticalWidthSlider.PreydatorRefresh = function(self)
+        verticalWidthBaseRefresh(self)
+        ApplyVerticalControlState()
+    end
+
+    local verticalScaleBaseRefresh = verticalScaleSlider.PreydatorRefresh
+    verticalScaleSlider.PreydatorRefresh = function(self)
+        verticalScaleBaseRefresh(self)
+        ApplyVerticalControlState()
+    end
+
+    local verticalHeightBaseRefresh = verticalHeightSlider.PreydatorRefresh
+    verticalHeightSlider.PreydatorRefresh = function(self)
+        verticalHeightBaseRefresh(self)
+        ApplyVerticalControlState()
+    end
+end
+
 local function BuildTextPage(owner, parent)
     local db = api.GetSettings()
     local defaults = api.GetDefaults()
 
+    local function IsVerticalMode()
+        return (db.orientation or constants.ORIENTATION_HORIZONTAL) == constants.ORIENTATION_VERTICAL
+    end
+
+    local function ApplyDropdownLockedState(control)
+        local locked = IsVerticalMode()
+        local enabled = not locked
+        if control.SetEnabled then
+            control:SetEnabled(enabled)
+        end
+        if control.EnableMouse then
+            control:EnableMouse(enabled)
+        end
+        if control.SetAlpha then
+            control:SetAlpha(enabled and 1 or 0.45)
+        end
+    end
+
     CreateSectionTitle(parent, COLUMN_LEFT_X, -10, "Label Mode")
-    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -40, "Label Mode", 170, LABEL_MODE_OPTIONS, function()
+    local labelModeDropdown = RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -40, "Label Mode", 170, LABEL_MODE_OPTIONS, function()
         return db.stageLabelMode
     end, function(key)
+        if IsVerticalMode() then
+            return
+        end
         db.stageLabelMode = key
         api.NormalizeDisplaySettings()
         api.RequestBarRefresh()
@@ -630,9 +976,21 @@ local function BuildTextPage(owner, parent)
         api.UpdateBarDisplay()
     end))
 
-    CreateSectionTitle(parent, COLUMN_RIGHT_X, -10, "Suffix Labels")
+    CreateSectionTitle(parent, COLUMN_RIGHT_X, -10, "Label Placement")
+    local labelRowDropdown = RegisterRefresher(owner, CreateDropdown(parent, COLUMN_RIGHT_X, -40, "Prefix/Suffix Row", 170, LABEL_ROW_OPTIONS, function()
+        return db.labelRowPosition
+    end, function(key)
+        if IsVerticalMode() then
+            return
+        end
+        db.labelRowPosition = key
+        api.NormalizeDisplaySettings()
+        api.RequestBarRefresh()
+    end))
+
+    CreateSectionTitle(parent, COLUMN_RIGHT_X, -108, "Suffix Labels")
     for stageIndex = 1, constants.MAX_STAGE do
-        local offset = -40 - ((stageIndex - 1) * 52)
+        local offset = -138 - ((stageIndex - 1) * 52)
         RegisterRefresher(owner, CreateTextInput(parent, COLUMN_RIGHT_X, offset, "Stage " .. tostring(stageIndex), 220, function()
             return db.stageLabels[stageIndex] or ""
         end, function(value)
@@ -642,21 +1000,21 @@ local function BuildTextPage(owner, parent)
         end))
     end
 
-    RegisterRefresher(owner, CreateTextInput(parent, COLUMN_RIGHT_X, -248, "Out of Zone Label", 220, function()
+    RegisterRefresher(owner, CreateTextInput(parent, COLUMN_RIGHT_X, -346, "Out of Zone Label", 220, function()
         return db.outOfZoneLabel
     end, function(value)
         db.outOfZoneLabel = value
         api.NormalizeLabelSettings()
         api.UpdateBarDisplay()
     end))
-    RegisterRefresher(owner, CreateTextInput(parent, COLUMN_RIGHT_X, -300, "Ambush Override Text", 220, function()
+    RegisterRefresher(owner, CreateTextInput(parent, COLUMN_RIGHT_X, -398, "Ambush Override Text", 220, function()
         return db.ambushCustomText
     end, function(value)
         db.ambushCustomText = value
         api.NormalizeLabelSettings()
         api.UpdateBarDisplay()
     end))
-    CreateActionButton(parent, COLUMN_RIGHT_X, -360, 180, "Restore Default Names", function()
+    CreateActionButton(parent, COLUMN_RIGHT_X, -458, 180, "Restore Default Names", function()
         for stageIndex = 1, constants.MAX_STAGE do
             db.stageLabels[stageIndex] = defaults.stageLabels[stageIndex] or ""
         end
@@ -666,6 +1024,29 @@ local function BuildTextPage(owner, parent)
         api.UpdateBarDisplay()
         owner:RefreshControls()
     end)
+
+    local function WrapRefreshWithDropdownLock(control)
+        if not control then
+            return
+        end
+        local baseRefresh = control.PreydatorRefresh
+        control.PreydatorRefresh = function(self)
+            if baseRefresh then
+                baseRefresh(self)
+            end
+            ApplyDropdownLockedState(self)
+        end
+    end
+
+    WrapRefreshWithDropdownLock(labelModeDropdown)
+    WrapRefreshWithDropdownLock(labelRowDropdown)
+
+    local lockNote = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    lockNote:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_LEFT_X, -456)
+    lockNote:SetWidth(320)
+    lockNote:SetJustifyH("LEFT")
+    lockNote:SetWordWrap(true)
+    lockNote:SetText("In Vertical mode, only Label Mode and Prefix/Suffix Row are locked here. Stage names and custom labels remain editable.")
 end
 
 local function BuildAudioPage(owner, parent)
@@ -851,7 +1232,7 @@ local function BuildAdvancedPage(owner, parent)
     note:SetWidth(260)
     note:SetJustifyH("LEFT")
     note:SetWordWrap(true)
-    note:SetText("Existing installs keep their current saved values. New settings are only applied when a key is missing in PreydatorDB. This panel replaces the old long-form options page but uses the same database.")
+    note:SetText("Existing installs keep their current saved values. New settings are only applied when a key is missing in PreydatorDB. This panel replaces the old long-form options page but uses the same database. The Inspect feature is compatible with BugSack.")
 end
 
 function SettingsModule:RefreshControls()
@@ -864,7 +1245,7 @@ function SettingsModule:RefreshControls()
 end
 
 function SettingsModule:BuildTabbedOptions(parent, topOffset, bottomOffset)
-    local tabLabels = { "General", "Display", "Text", "Audio", "Advanced" }
+    local tabLabels = { "General", "Display", "Vertical", "Text", "Audio", "Advanced" }
     local tabs = CreateCustomTabs(parent, tabLabels, function(index)
         for tabIndex, frame in ipairs(self.tabFrames) do
             frame:SetShown(tabIndex == index)
@@ -885,6 +1266,7 @@ function SettingsModule:BuildTabbedOptions(parent, topOffset, bottomOffset)
     local pageBuilders = {
         BuildGeneralPage,
         BuildDisplayPage,
+        BuildVerticalPage,
         BuildTextPage,
         BuildAudioPage,
         BuildAdvancedPage,
