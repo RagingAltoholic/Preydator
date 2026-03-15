@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.4 - 2026-03-14
+
+### Fixed
+- Removed `local L` alias from `Preydator.lua` main chunk to stay under Lua's hard 200-local-variable limit. Locale lookups now reference `_G.PreydatorL` directly inline. This also resolves the cascading `RegisterModule` nil errors in `Settings.lua`, `EditMode.lua`, and `CurrencyTracker.lua` that occurred because `Preydator.lua` was aborting before `_G.Preydator` was created.
+
 ## 1.6.3 - 2026-03-14
 
 ### Added

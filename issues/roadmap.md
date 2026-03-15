@@ -7,6 +7,7 @@
 - Epic 3: Weekly Hunt Cap Tracker - Planned
 - Epic 4: Prey Achievement Gap Highlighter - Planned
 - Epic 5: Reward Intelligence and Cost Context - In progress
+- Epic 6: Localization for other Languages - Completed (infrastructure + 10 stubs; seeking community translators)
 
 Completed for Epic 1:
 
