@@ -103,7 +103,6 @@ local ICON_PAD         = 8
 local WARBAND_ROW_H    = 24
 local WARBAND_COL_CHAR = 160
 local WARBAND_COL_W    = 68
-local POLL_INTERVAL_SECONDS = 0.5
 local TRACKER_WINDOW_WIDTH = 276
 local TRACKER_WINDOW_HEIGHT = 236
 local TRACKER_ROW_WIDTH = 248
@@ -199,7 +198,6 @@ local sessionStart      = {}   -- [currencyID] = quantity at login/reload
 local sessionBaselineReady = false
 local currencyPanelPage = nil  -- the Tab content frame, built lazily
 local lastKnownQuantity = {}   -- [currencyID] = quantity
-local pollElapsed = 0
 local ldbLauncher
 local ldbIconRegistered = false
 local warbandSortKey = "character"
@@ -2684,23 +2682,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
     end
 end)
 
-eventFrame:SetScript("OnUpdate", function(_, elapsed)
-    local currencyVisible = currencyWindow and currencyWindow:IsVisible()
-    local warbandVisible = warbandWindow and warbandWindow:IsVisible()
-    if not currencyVisible and not warbandVisible then
-        pollElapsed = 0
-        return
-    end
-
-    pollElapsed = pollElapsed + (elapsed or 0)
-    if pollElapsed < POLL_INTERVAL_SECONDS then
-        return
-    end
-
-    pollElapsed = 0
-    CurrencyTrackerModule:RefreshCurrencyPage()
-    LogCurrencyDebug("OnUpdatePoll | visible window sweep")
-end)
+-- No polling: currency refresh is event-driven via loot/currency/update events.
 
 --------------------------------------------------------------------------------
 -- Module lifecycle hooks

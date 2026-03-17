@@ -24,5 +24,16 @@ Preydator.lua
 Modules\Settings.lua
 Modules\EditMode.lua
 Modules\DebugInspect.lua
+Modules\Diagnostics.lua
+Modules\PreyRuntime.lua
+Modules\PreyAudio.lua
+Modules\MapAndWaypoint.lua
 Modules\CurrencyTracker.lua
 Modules\HuntScanner.lua
+Modules\V2\HuntDataStoreV2.lua
+Modules\V2\QuestLifecycleV2.lua
+Modules\V2\ZoneGateV2.lua
+Modules\V2\AmbushDetectorV2.lua
+Modules\V2\RuntimeCoordinatorV2.lua
+Modules\V2\PreyAudioV2.lua
+Modules\V2\CustomizationStateV2.lua

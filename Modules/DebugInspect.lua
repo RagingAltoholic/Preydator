@@ -88,6 +88,26 @@ local function BuildInspectReport()
     add("- quest live=" .. tostring(liveQuestID) .. " | hasActive=" .. tostring(hasActiveQuest) .. " | tracked=" .. tostring(state.activeQuestID))
     add("- state stage=" .. tostring(state.stage) .. " | progressState=" .. tostring(state.progressState) .. " | progressPercent=" .. tostring(state.progressPercent))
     add("- inPreyZone=" .. tostring(state.inPreyZone) .. " | disableDefaultPreyIcon=" .. tostring(settings and settings.disableDefaultPreyIcon == true))
+    local lifecycleV2 = Preydator.GetModule and Preydator:GetModule("QuestLifecycleV2") or nil
+    local runtimeV2 = Preydator.GetModule and Preydator:GetModule("RuntimeCoordinatorV2") or nil
+    local storeV2 = Preydator.GetModule and Preydator:GetModule("HuntDataStoreV2") or nil
+
+    local v2State = (lifecycleV2 and type(lifecycleV2.GetState) == "function") and lifecycleV2:GetState() or "<unavailable>"
+    local v2Transition = (runtimeV2 and type(runtimeV2.GetLastTransition) == "function") and runtimeV2:GetLastTransition() or nil
+    local v2ActiveHunt = (storeV2 and type(storeV2.GetActiveHunt) == "function") and storeV2:GetActiveHunt() or nil
+    local v2TransitionEvent = type(v2Transition) == "table" and v2Transition.event or nil
+    local v2TransitionState = type(v2Transition) == "table" and v2Transition.nextState or nil
+    local v2TransitionQuestID = type(v2Transition) == "table" and type(v2Transition.context) == "table" and v2Transition.context.questID or nil
+    local v2ActiveQuestID = type(v2ActiveHunt) == "table" and v2ActiveHunt.questID or nil
+    local v2SourceType = type(v2ActiveHunt) == "table" and v2ActiveHunt.sourceType or nil
+
+    add("- v2 state=" .. tostring(v2State)
+        .. " | lastEvent=" .. tostring(v2TransitionEvent)
+        .. " | nextState=" .. tostring(v2TransitionState)
+        .. " | lastQuestID=" .. tostring(v2TransitionQuestID)
+        .. " | activeQuestID=" .. tostring(v2ActiveQuestID)
+        .. " | sourceType=" .. tostring(v2SourceType))
+
     add("- settings size width=" .. tostring(settings and settings.width)
         .. " | height=" .. tostring(settings and settings.height)
         .. " | scale=" .. tostring(settings and settings.scale))
@@ -161,7 +181,7 @@ function DebugInspectModule:OnSlashCommand(text, rest)
         mode = "both"
     else
         local inspectMode = string.lower((rest or ""):match("^%s*(.-)%s*$"))
-        if inspectMode == "bug" or inspectMode == "bugsack" then
+        if inspectMode == "bug" or inspectMode == "bugsack" or inspectMode == "bs" then
             mode = "bugsack"
         elseif inspectMode == "both" then
             mode = "both"

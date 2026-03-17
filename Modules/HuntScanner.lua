@@ -82,11 +82,51 @@ local availabilityCache = {
 }
 local availabilityTouched = false
 local huntInteractionActive = false
+local questZoneCache = {}
+local questCoords = {}
+local cachedAdventureMapID = nil
+local queueDebounceUntil = 0
+local SNAPSHOT_QUEUE_DEBOUNCE_SECONDS = 0.15
 
 local HandleInteractionSnapshot
 local QueueInteractionSnapshotPasses
 local HidePanel
 local GetSettings
+local huntEventFrame
+local noisyEventsRegistered = false
+local IsMissionFrameVisible
+local IsOptionsPreviewVisible
+local HasActivePreyQuest
+
+local function SetNoisyEventSubscriptions(enabled)
+    if not huntEventFrame then
+        return
+    end
+
+    local shouldEnable = enabled == true
+    if shouldEnable == noisyEventsRegistered then
+        return
+    end
+
+    noisyEventsRegistered = shouldEnable
+    if shouldEnable then
+        huntEventFrame:RegisterEvent("QUEST_LOG_UPDATE")
+        huntEventFrame:RegisterEvent("UPDATE_UI_WIDGET")
+        huntEventFrame:RegisterEvent("UPDATE_ALL_UI_WIDGETS")
+    else
+        huntEventFrame:UnregisterEvent("QUEST_LOG_UPDATE")
+        huntEventFrame:UnregisterEvent("UPDATE_UI_WIDGET")
+        huntEventFrame:UnregisterEvent("UPDATE_ALL_UI_WIDGETS")
+    end
+end
+
+local function SyncNoisyEventSubscriptions()
+    local enabled = IsMissionFrameVisible()
+        or huntInteractionActive
+        or IsOptionsPreviewVisible()
+        or HasActivePreyQuest()
+    SetNoisyEventSubscriptions(enabled)
+end
 
 local function SafeToString(value)
     local ok, result = pcall(tostring, value)
@@ -124,6 +164,23 @@ local function GetGossipOptionsSafe()
 end
 
 local function IsInRestrictedInstance()
+    local zoneGate = Preydator and Preydator.GetModule and Preydator:GetModule("ZoneGateV2")
+    local gateFn = zoneGate and zoneGate.IsInInstance
+    if type(gateFn) == "function" then
+        local ok, inInstance, instanceType = pcall(gateFn, zoneGate)
+        if ok then
+            if not inInstance then
+                return false
+            end
+            return instanceType == "pvp"
+                or instanceType == "arena"
+                or instanceType == "party"
+                or instanceType == "raid"
+                or instanceType == "scenario"
+                or instanceType == "delve"
+        end
+    end
+
     if type(IsInInstance) ~= "function" then
         return false
     end
@@ -139,7 +196,7 @@ local function IsInRestrictedInstance()
         or instanceType == "delve"
 end
 
-local function IsOptionsPreviewVisible()
+IsOptionsPreviewVisible = function()
     local settings = GetSettings()
     if not settings or settings.huntScannerPreviewInOptions ~= true then
         return false
@@ -579,7 +636,7 @@ local function GetActivePreyStage()
     return nil
 end
 
-local function HasActivePreyQuest()
+HasActivePreyQuest = function()
     return GetActivePreyQuestID() ~= nil
 end
 
@@ -775,7 +832,7 @@ local function BuildRewardSummary(questID)
     return table.concat(rewards, ", ")
 end
 
-local function IsMissionFrameVisible()
+IsMissionFrameVisible = function()
     local frame = _G.CovenantMissionFrame
     return frame and frame:IsShown() == true
 end
@@ -830,6 +887,23 @@ local function InferZoneFromCoords(x, y)
     end
 
     return "Eversong Woods"
+end
+
+local function GetAdventureMapID()
+    local mission = _G.CovenantMissionFrame
+    local mapTab = mission and mission.MapTab
+    if not mapTab then
+        return nil
+    end
+    local sc = mapTab.ScrollContainer
+    if sc and type(sc.GetMapID) == "function" then
+        return sc:GetMapID()
+    end
+    local mc = mapTab.MapCanvas
+    if mc and type(mc.GetMapID) == "function" then
+        return mc:GetMapID()
+    end
+    return nil
 end
 
 local function GetAdventurePinPool()
@@ -990,20 +1064,47 @@ local function RefreshHuntsFromPins()
 
     local nextHunts = {}
     local seenQuestIDs = {}
+    local previousCount = #liveHunts
+    local adventureMapID = GetAdventureMapID()
+    if adventureMapID then
+        cachedAdventureMapID = adventureMapID
+    end
 
     for pin in pool:EnumerateActive() do
         local questID = tonumber(pin and pin.questID)
         local title = pin and pin.title
         if questID and questID > 0 and type(title) == "string" and title ~= "" then
             seenQuestIDs[questID] = true
+            local nx, ny = pin.normalizedX, pin.normalizedY
+            -- Cache raw coords so zone can be resolved later even when map is closed.
+            if type(nx) == "number" and type(ny) == "number" then
+                questCoords[questID] = { nx = nx, ny = ny }
+            end
+            local zoneMapID = nil
+            if (adventureMapID or cachedAdventureMapID) and C_Map and C_Map.GetMapInfoAtPosition then
+                local mapForLookup = adventureMapID or cachedAdventureMapID
+                local zoneInfo = C_Map.GetMapInfoAtPosition(mapForLookup, nx or 0, ny or 0)
+                zoneMapID = zoneInfo and zoneInfo.mapID
+            end
+            if zoneMapID then
+                questZoneCache[questID] = zoneMapID
+            end
             nextHunts[#nextHunts + 1] = {
                 questID = questID,
                 title = title,
                 difficulty = ParseDifficulty(pin.description),
-                zone = InferZoneFromCoords(pin.normalizedX, pin.normalizedY),
+                zone = InferZoneFromCoords(nx, ny),
+                zoneMapID = zoneMapID,
             }
             RememberQuestDifficulty(questID, nextHunts[#nextHunts].difficulty)
         end
+    end
+
+    -- The mission frame pin pool can be available before pins hydrate.
+    -- Keep the previous snapshot in this transient state so availability
+    -- counts do not flash to zero and then rebound a few seconds later.
+    if #nextHunts == 0 and previousCount > 0 and (IsMissionFrameVisible() or huntInteractionActive or IsOptionsPreviewVisible()) then
+        return liveHunts
     end
 
     for questID in pairs(rewardCache) do
@@ -2080,6 +2181,7 @@ HidePanel = function()
     snapshotSequence = snapshotSequence + 1
     lastOpenQuestID = nil
     lastOpenAt = 0
+    SyncNoisyEventSubscriptions()
 end
 
 HandleInteractionSnapshot = function()
@@ -2113,6 +2215,7 @@ HandleInteractionSnapshot = function()
             isHuntContext = true
         end
         huntInteractionActive = isHuntContext == true
+        SyncNoisyEventSubscriptions()
         if isHuntContext then
             MarkAvailabilityTouched()
         end
@@ -2303,7 +2406,7 @@ function HuntScannerModule:OnSlashCommand(text, rest)
     return false
 end
 
-QueueInteractionSnapshotPasses = function()
+QueueInteractionSnapshotPasses = function(force)
     if IsInRestrictedInstance() then
         HidePanel()
         return
@@ -2314,13 +2417,20 @@ QueueInteractionSnapshotPasses = function()
         return
     end
 
-    if not IsOptionsPreviewVisible() and not IsMissionFrameVisible() and not huntInteractionActive then
+    if not force and not IsOptionsPreviewVisible() and not IsMissionFrameVisible() and not huntInteractionActive then
         local options = GetGossipOptionsSafe()
         local isHuntContext = IsHuntTableContext(options)
         if not isHuntContext then
             return
         end
     end
+
+    local now = GetTime and (tonumber(GetTime()) or 0) or 0
+    if not force and now < queueDebounceUntil then
+        HandleInteractionSnapshot()
+        return
+    end
+    queueDebounceUntil = now + SNAPSHOT_QUEUE_DEBOUNCE_SECONDS
 
     snapshotSequence = snapshotSequence + 1
     local token = snapshotSequence
@@ -2331,7 +2441,9 @@ QueueInteractionSnapshotPasses = function()
         return
     end
 
-    for _, delay in ipairs({ 0.00, 0.05, 0.20, 0.50, 1.00 }) do
+    -- Delays extend to 10s so pins that load slowly (server lag) are still caught.
+    -- The snapshotSequence token cancels stale passes when the user leaves.
+    for _, delay in ipairs({ 0.05, 0.20, 0.50, 1.00, 2.00, 4.00, 7.00, 10.00 }) do
         C_Timer.After(delay, function()
             if token ~= snapshotSequence then
                 return
@@ -2437,14 +2549,65 @@ function HuntScannerModule:GetAvailabilityCounts()
     }
 end
 
+function HuntScannerModule:GetQuestZoneMapID(questID)
+    local id = tonumber(questID)
+    if not id then
+        return nil
+    end
+    local fromCache = questZoneCache[id]
+    if type(fromCache) == "number" then
+        return fromCache
+    end
+    local hunt = huntByQuestID[id]
+    if hunt and type(hunt.zoneMapID) == "number" then
+        return hunt.zoneMapID
+    end
+    -- If we have cached pin coordinates and a parent map ID, resolve zone on demand.
+    local coords = questCoords[id]
+    local parentMapID = cachedAdventureMapID
+    if coords and parentMapID and C_Map and C_Map.GetMapInfoAtPosition then
+        local zoneInfo = C_Map.GetMapInfoAtPosition(parentMapID, coords.nx, coords.ny)
+        local zoneMapID = zoneInfo and zoneInfo.mapID
+        if zoneMapID then
+            questZoneCache[id] = zoneMapID
+            return zoneMapID
+        end
+    end
+    return nil
+end
+
+function HuntScannerModule:GetQuestMetadata(questID)
+    local id = tonumber(questID)
+    if not id then
+        return nil
+    end
+
+    local hunt = huntByQuestID[id]
+    local zoneMapID = self:GetQuestZoneMapID(id)
+    local zoneName = hunt and hunt.zone or nil
+    local difficulty = hunt and hunt.difficulty or GetRememberedQuestDifficulty(id)
+    local title = hunt and hunt.title or nil
+    local sourceType = hunt and "weekly" or "random"
+
+    return {
+        questID = id,
+        title = title,
+        difficulty = difficulty,
+        zoneName = zoneName,
+        zoneMapID = zoneMapID,
+        sourceType = sourceType,
+    }
+end
+
 function HuntScannerModule:OnAddonLoaded()
     EnsureSettings()
     LoadRewardCaches()
     ProcessRewardCacheLifecycle()
     ApplyMissionHooks()
+    SyncNoisyEventSubscriptions()
 end
 
-local huntEventFrame = CreateFrame("Frame")
+huntEventFrame = CreateFrame("Frame")
 huntEventFrame:RegisterEvent("PLAYER_LOGIN")
 huntEventFrame:RegisterEvent("GOSSIP_SHOW")
 huntEventFrame:RegisterEvent("GOSSIP_CLOSED")
@@ -2455,26 +2618,36 @@ huntEventFrame:RegisterEvent("QUEST_DETAIL")
 huntEventFrame:RegisterEvent("QUEST_PROGRESS")
 huntEventFrame:RegisterEvent("QUEST_COMPLETE")
 huntEventFrame:RegisterEvent("QUEST_FINISHED")
-huntEventFrame:RegisterEvent("QUEST_LOG_UPDATE")
-huntEventFrame:RegisterEvent("UPDATE_UI_WIDGET")
-huntEventFrame:RegisterEvent("UPDATE_ALL_UI_WIDGETS")
 
 huntEventFrame:SetScript("OnEvent", function(_, event, ...)
-    RecordEvent(event, ...)
+    local noisyEvent = (event == "QUEST_LOG_UPDATE" or event == "UPDATE_UI_WIDGET" or event == "UPDATE_ALL_UI_WIDGETS")
+    local hasActiveQuest = HasActivePreyQuest()
+    local hasHuntContext = IsMissionFrameVisible() or huntInteractionActive or IsOptionsPreviewVisible() or hasActiveQuest
+
+    if (not noisyEvent) or hasHuntContext then
+        RecordEvent(event, ...)
+    end
 
     if event == "PLAYER_LOGIN" then
         EnsureSettings()
         LoadRewardCaches()
         ProcessRewardCacheLifecycle()
         ApplyMissionHooks()
+        SyncNoisyEventSubscriptions()
         return
     end
 
-    if event == "QUEST_LOG_UPDATE" or event == "UPDATE_UI_WIDGET" or event == "UPDATE_ALL_UI_WIDGETS" then
+    if (event == "QUEST_LOG_UPDATE" or event == "UPDATE_UI_WIDGET" or event == "UPDATE_ALL_UI_WIDGETS") and hasHuntContext then
         ProcessRewardCacheLifecycle()
     end
 
     if event == "GOSSIP_SHOW" then
+        -- Pre-flag hunt context eagerly so UPDATE_UI_WIDGET events refire while pins load.
+        local gossipOptions = GetGossipOptionsSafe()
+        if IsHuntTableContext(gossipOptions) then
+            huntInteractionActive = true
+            SyncNoisyEventSubscriptions()
+        end
         QueueInteractionSnapshotPasses()
         return
     end
@@ -2484,8 +2657,15 @@ huntEventFrame:SetScript("OnEvent", function(_, event, ...)
         return
     end
 
-    if event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW"
-        or event == "QUEST_DETAIL"
+    if event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" then
+        -- Pre-flag so widget update events keep refiring while mission frame pins load.
+        huntInteractionActive = true
+        SyncNoisyEventSubscriptions()
+        QueueInteractionSnapshotPasses(true)
+        return
+    end
+
+    if event == "QUEST_DETAIL"
         or event == "QUEST_PROGRESS"
         or event == "QUEST_COMPLETE"
     then
@@ -2506,7 +2686,7 @@ huntEventFrame:SetScript("OnEvent", function(_, event, ...)
         or event == "UPDATE_ALL_UI_WIDGETS"
         or event == "QUEST_LOG_UPDATE"
     then
-        if IsMissionFrameVisible() or huntInteractionActive or IsOptionsPreviewVisible() then
+        if hasHuntContext then
             QueueInteractionSnapshotPasses()
         end
         return
