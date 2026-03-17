@@ -1,0 +1,76 @@
+row_type,section,key,type,modules,bar,currency,warband,hunt,achievement,owner_now,owner_target,status,notes
+module,Module map,Bar runtime (Preydator.lua),n/a,Preydator.lua,Yes,-,-,-,-,L,V2,current,Main progress bar visuals and labels
+module,Module map,Settings UI (Modules/Settings.lua),n/a,Modules/Settings.lua,Yes,Yes,Yes,Yes,Yes,L,V2,current,Primary writer for most bar and sound fields
+module,Module map,PreyAudio (Modules/PreyAudio.lua),n/a,Modules/PreyAudio.lua,Yes,-,-,-,-,L,PreyAudioV2+CustomizationStateV2,current,Reads sound toggles paths channel enhance
+module,Module map,CurrencyTracker (Modules/CurrencyTracker.lua),n/a,Modules/CurrencyTracker.lua,-,Yes,Yes,-,-,L,V2,current,Currency and warband window fields and theme
+module,Module map,HuntScanner (Modules/HuntScanner.lua),n/a,Modules/HuntScanner.lua,-,-,-,Yes,-,L,V2,current,Scanner panel sizing theme grouping
+module,Module map,Achievement tracker (planned),n/a,planned,-,-,-,-,Partial/planned,L,V2,planned,Use shared theme defaults and local overrides
+module,Module map,Warband tracker (in CurrencyTracker),n/a,Modules/CurrencyTracker.lua,-,-,Yes,-,-,L,V2,current,Shares theme with currency by default
+field,Shared theme,scale,number,Preydator.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Bar scale baseline
+field,Shared theme,titleFontKey,string,Preydator.lua;Modules/Settings.lua,RW,R (planned),R (planned),R (planned),R (planned),L,V2,planned,Candidate shared font family key
+field,Shared theme,percentFontKey,string,Preydator.lua;Modules/Settings.lua,RW,R (planned),R (planned),R (planned),R (planned),L,V2,planned,Candidate shared numeric font key
+field,Shared theme,fillColor,color,Preydator.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Bar fill color
+field,Shared theme,bgColor,color,Preydator.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Bar background color
+field,Shared theme,borderColor,color,Preydator.lua;Modules/Settings.lua,RW,R (planned),R (planned),R (planned),R (planned),L,V2,planned,Candidate shared border accent color
+field,Shared theme,titleColor,color,Preydator.lua;Modules/Settings.lua,RW,R (planned),R (planned),R (planned),R (planned),L,V2,planned,Candidate shared text accent
+field,Shared theme,percentColor,color,Preydator.lua;Modules/Settings.lua,RW,R (planned),R (planned),R (planned),R (planned),L,V2,planned,Candidate shared percent value color
+field,Bar and labels,width,number,Preydator.lua;Modules/Settings.lua;Modules/DebugInspect.lua,RW,-,-,-,-,L,V2,current,Horizontal bar width
+field,Bar and labels,height,number,Preydator.lua;Modules/Settings.lua;Modules/DebugInspect.lua,RW,-,-,-,-,L,V2,current,Horizontal bar height
+field,Bar and labels,orientation,enum,Preydator.lua;Modules/Settings.lua;Modules/DebugInspect.lua,RW,-,-,-,-,L,V2,current,horizontal or vertical
+field,Bar and labels,verticalFillDirection,enum,Preydator.lua;Modules/Settings.lua;Modules/DebugInspect.lua,RW,-,-,-,-,L,V2,current,up or down behavior
+field,Bar and labels,stageLabelMode,enum,Preydator.lua;Modules/Settings.lua;Modules/DebugInspect.lua,RW,-,-,-,-,L,V2,current,center split policy
+field,Bar and labels,labelRowPosition,enum,Preydator.lua;Modules/Settings.lua;Modules/DebugInspect.lua,RW,-,-,-,-,L,V2,current,above or below
+field,Bar and labels,stageLabels[1..4],string array,Preydator.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Stage text labels
+field,Bar and labels,stageSuffixLabels[1..4],string array,Preydator.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Stage suffix text
+field,Bar and labels,outOfZoneLabel,string,Preydator.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Out of zone prefix label
+field,Bar and labels,ambushLabel,string,Preydator.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Ambush label text
+field,Bar and labels,percentDisplay,enum,Preydator.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Percent placement
+field,Bar and labels,verticalPercentDisplay,enum,Preydator.lua;Modules/Settings.lua;Modules/DebugInspect.lua,RW,-,-,-,-,L,V2,current,Vertical percent mode
+field,Sounds,soundsEnabled,bool,Modules/PreyAudio.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Master stage sound toggle
+field,Sounds,soundChannel,enum,Modules/PreyAudio.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,SFX Master etc
+field,Sounds,soundEnhance,number,Modules/PreyAudio.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Extra replay count
+field,Sounds,stageSounds[1..4],string array,Modules/PreyAudio.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Per stage path mapping
+field,Sounds,soundFileNames[],string array,Preydator.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Selectable local files list
+field,Sounds,ambushSoundEnabled,bool,Modules/PreyAudio.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Ambush sound toggle
+field,Sounds,ambushVisualEnabled,bool,Modules/PreyAudio.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Ambush visual toggle
+field,Sounds,ambushSoundPath,string,Modules/PreyAudio.lua;Modules/Settings.lua,RW,-,-,-,-,L,V2,current,Explicit ambush sound path
+field,Currency and warband,currencyWindowEnabled,bool,Modules/CurrencyTracker.lua;Modules/Settings.lua,-,RW,-,-,-,L,V2,current,Currency tracker visibility toggle
+field,Currency and warband,currencyWindowPoint,point table,Modules/CurrencyTracker.lua,-,RW,-,-,-,L,V2,current,Currency window anchor and position
+field,Currency and warband,currencyWindowWidth/Height,number,Modules/CurrencyTracker.lua,-,RW,-,-,-,L,V2,current,Currency window size
+field,Currency and warband,currencyWindowFontSize,number,Modules/CurrencyTracker.lua,-,RW,-,-,-,L,V2,current,Currency row font size
+field,Currency and warband,currencyWindowScale,number,Modules/CurrencyTracker.lua,-,RW,-,-,-,L,V2,current,Currency window scale
+field,Currency and warband,currencyTheme,string,Modules/CurrencyTracker.lua;Modules/HuntScanner.lua;Modules/Settings.lua,-,RW,R,R,-,L,V2,current,Shared base theme
+field,Currency and warband,currencyTrackedIDs,table,Modules/CurrencyTracker.lua,-,RW,-,-,-,L,V2,current,Currency inclusion list
+field,Currency and warband,randomHuntCosts,table,Modules/CurrencyTracker.lua,-,RW,-,-,-,L,V2,current,Cost model by difficulty
+field,Currency and warband,currencyWarbandWindowEnabled,bool,Modules/CurrencyTracker.lua;Modules/Settings.lua,-,-,RW,-,-,L,V2,current,Warband window visibility
+field,Currency and warband,currencyWarbandWindowPoint,point table,Modules/CurrencyTracker.lua,-,-,RW,-,-,L,V2,current,Warband window anchor and position
+field,Currency and warband,currencyWarbandWidth/Height,number,Modules/CurrencyTracker.lua,-,-,RW,-,-,L,V2,current,Warband window size
+field,Currency and warband,currencyWarbandFontSize,number,Modules/CurrencyTracker.lua,-,-,RW,-,-,L,V2,current,Warband row font size
+field,Currency and warband,currencyWarbandScale,number,Modules/CurrencyTracker.lua,-,-,RW,-,-,L,V2,current,Warband window scale
+field,Currency and warband,currencyWarbandUseCurrencyTheme,bool,Modules/CurrencyTracker.lua,-,-,RW,-,-,L,V2,current,Inherit currency theme toggle
+field,Currency and warband,currencyWarbandTheme,string,Modules/CurrencyTracker.lua,-,-,RW,-,-,L,V2,current,Warband local override theme
+field,Currency and warband,currencyWarbandTrackedIDs,table,Modules/CurrencyTracker.lua,-,-,RW,-,-,L,V2,current,Warband tracked currencies
+field,Currency and warband,currencyWarbandShowPreyTrack,bool,Modules/CurrencyTracker.lua,-,-,RW,-,-,L,V2,current,Show prey triplet in warband
+field,Currency and warband,currencyWarbandPreyMode,enum,Modules/CurrencyTracker.lua,-,-,RW,-,-,L,V2,current,available completed mode
+field,Hunt tracker,huntScannerEnabled,bool,Modules/HuntScanner.lua;Modules/Settings.lua,-,-,-,RW,-,L,V2,current,Hunt tracker module toggle
+field,Hunt tracker,huntScannerSide,enum,Modules/HuntScanner.lua,-,-,-,RW,-,L,V2,current,left right side
+field,Hunt tracker,huntScannerWidth/Height,number,Modules/HuntScanner.lua,-,-,-,RW,-,L,V2,current,Window sizing
+field,Hunt tracker,huntScannerFontSize,number,Modules/HuntScanner.lua,-,-,-,RW,-,L,V2,current,Text size
+field,Hunt tracker,huntScannerScale,number,Modules/HuntScanner.lua,-,-,-,RW,-,L,V2,current,Scale
+field,Hunt tracker,huntScannerGroupBy,enum,Modules/HuntScanner.lua,-,-,-,RW,-,L,V2,current,none difficulty zone
+field,Hunt tracker,huntScannerSortBy,enum,Modules/HuntScanner.lua,-,-,-,RW,-,L,V2,current,difficulty zone title
+field,Hunt tracker,huntScannerAnchorAlign,enum,Modules/HuntScanner.lua,-,-,-,RW,-,L,V2,current,top middle bottom
+field,Hunt tracker,huntScannerUseCurrencyTheme,bool,Modules/HuntScanner.lua,-,-,-,RW,-,L,V2,current,Shared theme use toggle
+field,Hunt tracker,huntScannerTheme,string,Modules/HuntScanner.lua,-,-,-,RW,-,L,V2,current,Local override theme
+planned,Slice G planned,modules.bar.enabled,bool,planned,RW,-,-,-,-,n/a,V2,planned,Hard disable bar runtime when off
+planned,Slice G planned,modules.sounds.enabled,bool,planned,-,-,-,-,-,n/a,V2,planned,Disable sound runtime and setting edits
+planned,Slice G planned,modules.currency.enabled,bool,planned,-,RW,-,-,-,n/a,V2,planned,Disable currency runtime and setting edits
+planned,Slice G planned,modules.warband.enabled,bool,planned,-,-,RW,-,-,n/a,V2,planned,Disable warband runtime and setting edits
+planned,Slice G planned,modules.achievement.enabled,bool,planned,-,-,-,-,RW,n/a,V2,planned,Achievement module enable gate
+planned,Slice G planned,modules.hunt.enabled,bool,planned,-,-,-,RW,-,n/a,V2,planned,Disable hunt runtime and setting edits
+planned,Slice G planned,sharedTheme.fontKey,string,planned,R,R,R,R,R,n/a,V2,planned,Shared typography baseline
+planned,Slice G planned,sharedTheme.scale,number,planned,R,R,R,R,R,n/a,V2,planned,Shared scale baseline
+planned,Slice G planned,sharedTheme.palette,table,planned,R,R,R,R,R,n/a,V2,planned,Shared color tokens
+planned,Slice G planned,difficultySymbols.auto[diff],string,planned,-,-,R,R,R,n/a,V2,planned,Localized auto initials with collision expansion
+planned,Slice G planned,difficultySymbols.override[diff],string,planned,-,-,RW,RW,RW,n/a,V2,planned,User override identifier text
+planned,Slice G planned,difficultySymbols.color[diff],color,planned,-,-,RW,RW,RW,n/a,V2,planned,Per difficulty identifier color

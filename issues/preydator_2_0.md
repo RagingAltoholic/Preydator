@@ -481,6 +481,67 @@ Validation note (2026-03-17):
 
 ---
 
+### Slice E start (ambush detection ownership)
+
+Objective:
+Route ambush detection decisions through `AmbushDetectorV2` and disable the legacy `IsAmbushSystemMessage` / `ShouldScanAmbushChat` call paths.
+
+Implemented in this slice:
+1. `AmbushDetectorV2:ShouldListen(v2State, zoneMapID)` — gates on V2 lifecycle state (`in_zone` only); when `zoneMapID` is provided (NPC chat path) also delegates instance exclusion to `ZoneGateV2:CanScan`.
+2. `AmbushDetectorV2:HandleSystemMessage(msg)` — keyword match only (`"ambush"`, case-insensitive); prey-name match intentionally excluded for `CHAT_MSG_SYSTEM` to avoid false positives on quest-accepted system text.
+3. `AmbushDetectorV2:HandleNpcMessage(msg, speaker, preyName)` — prey-name match in message and speaker for `CHAT_MSG_MONSTER_*` / `RAID_BOSS_EMOTE`.
+4. `Preydator.lua` `CHAT_MSG_SYSTEM` handler — legacy `IsAmbushSystemMessage` call replaced with `AmbushDetectorV2:ShouldListen(v2State)` + `HandleSystemMessage`.
+5. `Preydator.lua` NPC handler — legacy `ShouldScanAmbushChat` + `IsAmbushSystemMessage` calls replaced with `AmbushDetectorV2:ShouldListen(v2State, zoneMapID)` + `HandleNpcMessage`.
+
+Legacy functions (`IsAmbushSystemMessage`, `ShouldScanAmbushChat`) remain as unreachable dead code pending Slice H removal.
+
+Acceptance checks:
+1. Out-of-zone: ambush system messages and NPC chat produce no trigger (v2State = `out_of_zone`, `ShouldListen` returns false).
+2. In-zone, `CHAT_MSG_SYSTEM` containing "Ambush": triggers alert.
+3. In-zone, `CHAT_MSG_SYSTEM` containing prey name only (not "ambush"): no trigger.
+4. In-zone, NPC say/yell containing prey name: triggers alert.
+5. In-zone but in restricted instance: no trigger (ZoneGateV2:CanScan blocks NPC path).
+
+Progress:
+- [x] E.1 AmbushDetectorV2 fully implemented.
+- [x] E.2 Preydator.lua event handlers routed through V2, legacy calls disabled.
+- [x] E.3 In-game validation pass (ambush trigger in prey zone confirmed). ✅ validated 2026-03-17
+
+Validation note (2026-03-17, post-maintenance live test):
+- Out-of-zone inspect showed expected parity: `inPreyZone=false` and `v2 state=out_of_zone`.
+- Entering prey zone showed expected parity: `inPreyZone=true` and `v2 state=in_zone` with `lastEvent=PREY_ZONE_ENTERED`.
+- Ambush detection fired from NPC chat path in-zone (`CHAT_MSG_MONSTER_SAY`) with alert sound confirmed.
+- Debug log now shows explicit V2 zone reconciliation transitions (`PREY_ZONE_ENTERED` / `PREY_ZONE_EXITED`) and ambush detection source entries, improving post-test diagnostics.
+
+### Slice F start (audio ownership)
+
+Objective:
+Route stage and ambush audio behavior through `PreyAudioV2` and keep legacy audio ownership only as fallback during validation.
+
+Implemented in this slice:
+1. `PreyAudioV2` moved from legacy pass-through skeleton to active owner implementation for:
+    - `ResolveStageSoundPath`
+    - `TryPlaySound`
+    - `TryPlayStageSound`
+    - `TriggerAmbushAlert`
+2. Ambush dedupe is now owned by `PreyAudioV2` with a 30-second window (prevents repeated alert bursts from multi-line ambush chatter).
+3. `Preydator.lua` audio delegation points now prefer `PreyAudioV2` and fall back to `PreyAudio` only if V2 is unavailable:
+    - `TryPlaySound`
+    - `ResolveStageSoundPath`
+    - `TryPlayStageSound`
+    - `TriggerAmbushAlert`
+
+Acceptance checks:
+1. Stage 1-4 sounds still fire once per stage with existing sound toggles/channel/enhance behavior.
+2. Ambush alert sound/visual behavior remains intact.
+3. Multi-line ambush NPC chatter within 30 seconds triggers one alert burst, subsequent lines are deduped.
+4. No regression when sound toggles are disabled (both stage and ambush paths).
+
+Progress:
+- [x] F.1 PreyAudioV2 implemented as active owner.
+- [x] F.2 Runtime audio delegation switched to V2-first with legacy fallback.
+- [ ] F.3 In-game parity validation pass (stage sounds + ambush dedupe + toggle behavior).
+
 ## Notes from external addon comparison (ethical pattern review)
 
 Keep: technique-level lessons, not code copying.
@@ -720,6 +781,65 @@ function CustomizationStateV2:GetEffectiveSettings() end
 function CustomizationStateV2:SubscribeSettingsChanged(callback) end
 ```
 
+### Slice G customization requirements (confirmed 2026-03-17)
+
+Primary goal:
+Move customization ownership into `CustomizationStateV2` without causing a painful upgrade, without losing current flexibility, and with inspect-visible validation during the transition.
+
+Migration rules:
+1. Upgrade must be painless for existing users.
+2. Existing SavedVariables remain present for compatibility during the transition.
+3. A one-time migration copies legacy settings into the new customization pipeline.
+4. During phased rollout, inspect output is the primary mismatch-reporting surface.
+5. After parity is proven, verbose migration diagnostics can move back behind debug-only paths.
+
+Cutover strategy:
+1. Move category by category, not as a single big-bang rewrite.
+2. Each category keeps current user-visible behavior until its V2 owner is validated.
+3. Each category should expose inspect-visible parity state while dual-read or dual-write is active.
+4. Slash command cleanup/update is allowed during this phase, but only if command behavior remains understandable and migration-safe.
+
+Initial category ownership order:
+1. The bar
+2. The sounds
+3. Currency tracker
+4. Warband tracker
+5. Achievement tracker
+6. Hunt tracker
+
+UI/UX direction:
+1. Preserve the current level of customization; do not reduce capability just to simplify implementation.
+2. Simplify settings presentation where possible by grouping shared controls instead of duplicating nearly identical panels.
+3. Horizontal and vertical bar configuration should support shared control groups where one set of sliders can intentionally drive both when the user chooses linked behavior.
+4. Custom themes should support font, colors, scale, and related display settings without forcing a single static look.
+
+Module enable/disable rules:
+1. Each major module can be enabled or disabled independently.
+2. If a module is disabled, its runtime behavior must be off.
+3. Enabling a disabled module requires reload.
+4. If a module is disabled, its module-specific settings controls should not be editable.
+5. Disabling a module does not delete its saved settings; they must persist for later re-enable.
+
+Shared theme inheritance rules:
+1. Shared visual settings such as font, scale, and colors should carry across tracker modules when those modules are enabled later.
+2. A user who configures hunt tracker visuals first should see those shared visual settings available to currency, warband, and achievement tracker modules when enabled.
+3. Module-specific overrides may exist, but the default mental model should be shared theme first, per-module override second.
+
+Difficulty identifier requirements:
+1. Hunt tracker and warband tracker both need customization for difficulty identifiers.
+2. Default identifiers should be localization-friendly and derived from the first letter of each difficulty label.
+3. If multiple difficulties would collide on the same first letter/symbol, the next conflicting identifier expands to the next distinguishing character.
+4. Users may override the auto-derived identifier text manually.
+5. Difficulty identifier text and color customization should apply consistently anywhere the difficulty token is rendered.
+
+Verification expectations during Slice G:
+1. `inspect` should expose active customization owner, migration state, and any legacy/V2 mismatch for the category under test.
+2. Settings parity checks should be easy to run and easy to paste during iterative testing.
+3. When a category is still mid-cutover, inspect output is preferred over hidden debug-only reporting.
+
+Reference artifact:
+1. `issues/customization_fields_matrix.md` is the active field inventory and module-usage matrix for Slice G planning and migration tracking.
+
 7. PreyAudioV2
 - Responsibility: audio behavior boundary for stage/ambush sounds during V2 cutover.
 - Inputs: sound settings, stage transitions, ambush triggers.
@@ -871,3 +991,4 @@ Recommended order:
 3. Update the /pd inspect Bugsack to pd inspect bs dfor ease of typing
 4. Allow players to customize their themes so setting up a tab that has all the colors pbroken up by Primary secondary, rows for the bars and the fonts. Customize font selection. Maybe add a Font folder so people can add their own fonts like how we do sounds, same with Textures for the fill or even the Theme Rows if they want to add textures there.
 5. Since we can now get the zone from the quests thanks to Hunt Tracker let's add an option that the out of zone message is instead travel to zone X
+6. Ability to hide the Bar but keep the sounds.

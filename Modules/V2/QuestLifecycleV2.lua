@@ -31,6 +31,17 @@ function QuestLifecycleV2:Evaluate(eventName, context)
         else
             nextState = "accepted"
         end
+    elseif eventName == "PREY_ZONE_ENTERED" then
+        -- Player entered the prey zone; transition waiting/out-of-zone states into in_zone.
+        -- stage4 and ended are terminal; they stay as-is.
+        if current == "out_of_zone" or current == "accepted" then
+            nextState = "in_zone"
+        end
+    elseif eventName == "PREY_ZONE_EXITED" then
+        -- Player left the prey zone; transition in_zone/accepted back to out_of_zone.
+        if current == "in_zone" or current == "accepted" then
+            nextState = "out_of_zone"
+        end
     elseif eventName == "PREY_QUEST_CLEARED" then
         nextState = "ended"
     end

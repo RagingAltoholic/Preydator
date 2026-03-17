@@ -1417,7 +1417,7 @@ local function ShouldScanAmbushChat()
 end
 
 local function TriggerAmbushAlert(message, source)
-    local module = Preydator and Preydator.GetModule and Preydator:GetModule("PreyAudio")
+    local module = Preydator and Preydator.GetModule and (Preydator:GetModule("PreyAudioV2") or Preydator:GetModule("PreyAudio"))
     local fn = module and module.TriggerAmbushAlert
     if type(fn) == "function" then
         local ok = pcall(fn, module, message, source)
@@ -1428,7 +1428,8 @@ local function TriggerAmbushAlert(message, source)
 
     -- Fallback keeps alert behavior available if the audio module is unavailable.
     local now = GetTime and GetTime() or 0
-    if state.lastAmbushSystemMessage == message and ((state.lastAmbushAlertAt or 0) + 3.0) > now then
+    if ((state.lastAmbushAlertAt or 0) + 30.0) > now then
+        AddDebugLog("Ambush", "Deduped from " .. tostring(source) .. ": " .. tostring(message), false)
         return
     end
 
@@ -1510,7 +1511,7 @@ AddDebugLog = function(kind, message, forcePrint)
 end
 
 TryPlaySound = function(path, ignoreSoundToggle)
-    local module = Preydator and Preydator.GetModule and Preydator:GetModule("PreyAudio")
+    local module = Preydator and Preydator.GetModule and (Preydator:GetModule("PreyAudioV2") or Preydator:GetModule("PreyAudio"))
     local fn = module and module.TryPlaySound
     if type(fn) == "function" then
         local ok, didPlay = pcall(fn, module, path, ignoreSoundToggle)
@@ -1524,7 +1525,7 @@ TryPlaySound = function(path, ignoreSoundToggle)
 end
 
 local function ResolveStageSoundPath(stage)
-    local module = Preydator and Preydator.GetModule and Preydator:GetModule("PreyAudio")
+    local module = Preydator and Preydator.GetModule and (Preydator:GetModule("PreyAudioV2") or Preydator:GetModule("PreyAudio"))
     local fn = module and module.ResolveStageSoundPath
     if type(fn) == "function" then
         local ok, resolvedPath = pcall(fn, module, stage)
@@ -1546,7 +1547,7 @@ local function ResolveStageSoundPath(stage)
 end
 
 TryPlayStageSound = function(stage, ignoreSoundToggle)
-    local module = Preydator and Preydator.GetModule and Preydator:GetModule("PreyAudio")
+    local module = Preydator and Preydator.GetModule and (Preydator:GetModule("PreyAudioV2") or Preydator:GetModule("PreyAudio"))
     local fn = module and module.TryPlayStageSound
     if type(fn) == "function" then
         local ok, didPlay = pcall(fn, module, stage, ignoreSoundToggle)
@@ -2737,6 +2738,7 @@ local function ClearPreyStateAndDisplay()
     state.preyZoneName = nil
     state.preyZoneMapID = nil
     state.inPreyZone = nil
+    state.v2LastInPreyZone = nil
     state.preyTooltipText = nil
     state.stage = 1
     state.killStageUntil = 0
@@ -4470,6 +4472,35 @@ local function UpdatePreyState()
         state.inPreyZone = IsPlayerInPreyZone(state.preyZoneMapID)
     end
 
+    -- Emit V2 zone transition when inPreyZone flips and reconcile lifecycle state if drifted.
+    do
+        local nowInPreyZone = state.inPreyZone == true
+        local prevInPreyZone = state.v2LastInPreyZone == true
+        local lifecycle = Preydator and Preydator.GetModule and Preydator:GetModule("QuestLifecycleV2")
+        local v2State = lifecycle and lifecycle.GetState and lifecycle:GetState() or nil
+        local expectedState = nowInPreyZone and "in_zone" or "out_of_zone"
+        local hasZoneStateDrift = (v2State == "in_zone" or v2State == "out_of_zone" or v2State == "accepted") and v2State ~= expectedState
+        local shouldSyncZoneState = nowInPreyZone ~= prevInPreyZone or hasZoneStateDrift
+
+        if IsValidQuestID(state.activeQuestID) and shouldSyncZoneState then
+            state.v2LastInPreyZone = nowInPreyZone
+            local zoneEventName = nowInPreyZone and "PREY_ZONE_ENTERED" or "PREY_ZONE_EXITED"
+            local coordinator = Preydator and Preydator.GetModule and Preydator:GetModule("RuntimeCoordinatorV2")
+            local fn = coordinator and coordinator.HandleInternalEvent
+            if type(fn) == "function" then
+                pcall(fn, coordinator, zoneEventName, {
+                    questID = state.activeQuestID,
+                    zoneMapID = state.preyZoneMapID,
+                })
+                AddDebugLog("V2Zone", "event=" .. tostring(zoneEventName)
+                    .. " | inPreyZone=" .. tostring(nowInPreyZone)
+                    .. " | prevInPreyZone=" .. tostring(prevInPreyZone)
+                    .. " | v2StateBefore=" .. tostring(v2State)
+                    .. " | drift=" .. tostring(hasZoneStateDrift), false)
+            end
+        end
+    end
+
     if IsValidQuestID(state.activeQuestID) and tonumber(state.v2LastAcceptedQuestID) ~= tonumber(state.activeQuestID) then
         local coordinator = Preydator and Preydator.GetModule and Preydator:GetModule("RuntimeCoordinatorV2")
         local fn = coordinator and coordinator.HandleInternalEvent
@@ -4588,7 +4619,12 @@ function Preydator:ShouldUseActivePolling()
 
     local hasHotQuestContext = IsValidQuestID(contextQuestID) and inPreyZone
 
-    return hasHotQuestContext
+    -- Do not run widget poll while player is mounted: encounters cannot start while mounted
+    -- so there is no ambush or progress state to detect. Zone events still fire on dismount.
+    local playerIsMounted = IsMounted and IsMounted() == true
+    local hotContextActive = hasHotQuestContext and not playerIsMounted
+
+    return hotContextActive
         or needsQuestBootstrap
         or inKillCarry
         or inEditPreview
@@ -5722,15 +5758,39 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2)
     end
 
     if event == "CHAT_MSG_SYSTEM" then
-        if IsAmbushSystemMessage(arg1, arg2, event) then
-            TriggerAmbushAlert(arg1, event)
+        -- Slice E: AmbushDetectorV2 owns system-message ambush detection.
+        local detector = Preydator and Preydator.GetModule and Preydator:GetModule("AmbushDetectorV2")
+        if detector then
+            local lifecycle = Preydator and Preydator.GetModule and Preydator:GetModule("QuestLifecycleV2")
+            local v2State = lifecycle and lifecycle:GetState() or nil
+            local hasSystemAmbushKeyword = detector:HandleSystemMessage(arg1)
+            local canListen = detector:ShouldListen(v2State)
+            if canListen and hasSystemAmbushKeyword then
+                TriggerAmbushAlert(arg1, event)
+            elseif hasSystemAmbushKeyword then
+                AddDebugLog("AmbushV2", "suppressed system ambush | v2State=" .. tostring(v2State), false)
+            end
         end
         return
     end
 
     if event == "CHAT_MSG_MONSTER_SAY" or event == "CHAT_MSG_MONSTER_YELL" or event == "CHAT_MSG_MONSTER_EMOTE" or event == "RAID_BOSS_EMOTE" then
-        if ShouldScanAmbushChat() and IsAmbushSystemMessage(arg1, arg2, event) then
-            TriggerAmbushAlert(arg1, event)
+        -- Slice E: AmbushDetectorV2 owns NPC-chat ambush detection.
+        local detector = Preydator and Preydator.GetModule and Preydator:GetModule("AmbushDetectorV2")
+        if detector then
+            local lifecycle = Preydator and Preydator.GetModule and Preydator:GetModule("QuestLifecycleV2")
+            local store = Preydator and Preydator.GetModule and Preydator:GetModule("HuntDataStoreV2")
+            local v2State = lifecycle and lifecycle:GetState() or nil
+            local activeHunt = store and store:GetActiveHunt() or nil
+            local zoneMapID = type(activeHunt) == "table" and activeHunt.zoneMapID or nil
+            local preyName = type(activeHunt) == "table" and activeHunt.targetName or nil
+            local canListen = detector:ShouldListen(v2State, zoneMapID)
+            local matchedNpcAmbush = detector:HandleNpcMessage(arg1, arg2, preyName)
+            if canListen and matchedNpcAmbush then
+                TriggerAmbushAlert(arg1, event)
+            elseif matchedNpcAmbush and not canListen then
+                AddDebugLog("AmbushV2", "suppressed npc ambush | v2State=" .. tostring(v2State) .. " | zoneMapID=" .. tostring(zoneMapID), false)
+            end
         end
         return
     end
@@ -5791,6 +5851,18 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2)
                 return
             end
             state.lastIdleEventProbeAt = now
+        end
+
+        -- While mounted and already confirmed in-zone, ZONE_CHANGED sub-zone crossings only
+        -- matter for the inPreyZone check — skip the full UpdatePreyState widget scan.
+        -- The zone event still fires so we can notice if the player leaves the prey zone.
+        if isZoneEvent and not shouldProbeNow and (IsMounted and IsMounted() == true) then
+            local stillInZone = inPreyZone
+            if not stillInZone and (state and state.inPreyZone == true) then
+                -- Potential zone exit even while mounted — allow the probe.
+            else
+                return
+            end
         end
     end
 

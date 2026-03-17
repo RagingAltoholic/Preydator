@@ -22,7 +22,11 @@ local function GetStore()
 end
 
 function RuntimeCoordinatorV2:HandleInternalEvent(eventName, payload)
-    if eventName ~= "PREY_QUEST_ACCEPTED" and eventName ~= "PREY_QUEST_CLEARED" then
+    if eventName ~= "PREY_QUEST_ACCEPTED"
+        and eventName ~= "PREY_QUEST_CLEARED"
+        and eventName ~= "PREY_ZONE_ENTERED"
+        and eventName ~= "PREY_ZONE_EXITED"
+    then
         return nil
     end
 
