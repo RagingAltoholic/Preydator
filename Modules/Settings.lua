@@ -1410,7 +1410,7 @@ local function BuildAudioPage(owner, parent)
             owner:RefreshControls()
             print(string.format(L["Preydator: Added sound file '%s'."], tostring(message)))
         else
-            print("Preydator: " .. tostring(message))
+            print(L["Preydator: "] .. tostring(message))
         end
     end)
     CreateActionButton(parent, COLUMN_RIGHT_X + 115, -86, 105, L["Remove File"], function()
@@ -1420,7 +1420,7 @@ local function BuildAudioPage(owner, parent)
             owner:RefreshControls()
             print(string.format(L["Preydator: Removed sound file '%s'."], tostring(message)))
         else
-            print("Preydator: " .. tostring(message))
+            print(L["Preydator: "] .. tostring(message))
         end
     end)
     CreateActionButton(parent, COLUMN_RIGHT_X, -130, 140, string.format(L["Test Stage %d"], 1), function()
@@ -1539,7 +1539,7 @@ local function BuildAdvancedPage(owner, parent)
         local huntScanner = Preydator:GetModule("HuntScanner")
         if huntScanner and type(huntScanner.RefreshRewardCache) == "function" then
             huntScanner:RefreshRewardCache()
-            print("Preydator: Hunt reward cache refresh queued.")
+            print(L["Preydator: Hunt reward cache refresh queued."])
         end
     end)
     CreateActionButton(parent, COLUMN_LEFT_X, -248, 180, L["Refresh Hunt Table Now"], function()

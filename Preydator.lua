@@ -1362,7 +1362,7 @@ AddDebugLog = function(kind, message, forcePrint)
     end
 
     if forcePrint then
-        print("Preydator DEBUG: " .. entry)
+        print(L["Preydator DEBUG: "] .. entry)
     end
 end
 
@@ -1395,7 +1395,7 @@ TryPlaySound = function(path, ignoreSoundToggle)
     local warnedKey = tostring(path or "")
     if warnedMissingSoundPaths[warnedKey] ~= true then
         warnedMissingSoundPaths[warnedKey] = true
-        print("Preydator: Sound failed to play: '" .. warnedKey .. "'. Ensure the .ogg exists in Interface\\AddOns\\Preydator\\sounds\\ and is listed in Custom Sound Files.")
+        print(string.format(L["Preydator: Sound failed to play: '%s'. Ensure the .ogg exists in Interface\\AddOns\\Preydator\\sounds\\ and is listed in Custom Sound Files."], warnedKey))
     end
 
     return false
@@ -3356,7 +3356,7 @@ end
 
 local function PrintMemoryUsage()
     if not collectgarbage then
-        print("Preydator: collectgarbage API unavailable.")
+        print(L["Preydator: collectgarbage API unavailable."])
         return
     end
 
@@ -3365,7 +3365,7 @@ local function PrintMemoryUsage()
     local after = collectgarbage("count")
     local delta = before - after
 
-    print("Preydator memory (KB): before=" .. FormatMemoryKB(before) .. " afterGC=" .. FormatMemoryKB(after) .. " reclaimed=" .. FormatMemoryKB(delta))
+    print(string.format(L["Preydator memory (KB): before=%s afterGC=%s reclaimed=%s"], FormatMemoryKB(before), FormatMemoryKB(after), FormatMemoryKB(delta)))
 end
 
 local function BuildStageSoundPlayedSummary()
@@ -4183,13 +4183,13 @@ local function PrintInspectState(outputMode)
     if outputMode == "bugsack" or outputMode == "both" then
         local sent, reason = SendInspectReportToErrorHandler(reportText)
         if sent then
-            print("Preydator: Inspect report sent to BugSack via error handler. This is intentional diagnostic output, not a runtime addon bug.")
+            print(L["Preydator: Inspect report sent to BugSack via error handler. This is intentional diagnostic output, not a runtime addon bug."])
         else
-            print("Preydator: Could not send inspect report to BugSack: " .. tostring(reason))
+            print(L["Preydator: Could not send inspect report to BugSack: "] .. tostring(reason))
         end
     end
 
-    print("Preydator: Inspect report cached in PreydatorLastInspectReport (" .. tostring(#lines) .. " lines).")
+    print(string.format(L["Preydator: Inspect report cached in PreydatorLastInspectReport (%s lines)."], tostring(#lines)))
 end
 
 ExtractWidgetQuestID = function(info)
@@ -4691,7 +4691,7 @@ EnsureOptionsPanel = function()
 
     local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
-    subtitle:SetText("Bar movement, scale, font, texture, and sound settings.")
+    subtitle:SetText(L["Bar movement, scale, font, texture, and sound settings."])
     subtitle:SetWidth(700)
     subtitle:SetJustifyH("LEFT")
     subtitle:SetWordWrap(true)
@@ -4741,7 +4741,7 @@ EnsureOptionsPanel = function()
 
     local stageNamesTitle = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     stageNamesTitle:SetPoint("TOPLEFT", panel, "TOPLEFT", 320, -407)
-    stageNamesTitle:SetText("Stage Names")
+    stageNamesTitle:SetText(L["Stage Names"])
 
     local stageNameEdits = {}
     for stageIndex = 1, (MAX_STAGE - 1) do
@@ -4775,7 +4775,7 @@ EnsureOptionsPanel = function()
     local outZoneRowY = -547
     local outZoneLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     outZoneLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 320, outZoneRowY)
-    outZoneLabel:SetText("Zone:")
+    outZoneLabel:SetText(L["Zone:"])
 
     local outZoneEdit = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
     outZoneEdit:SetSize(156, 20)
@@ -4799,7 +4799,7 @@ EnsureOptionsPanel = function()
 
     local ambushLabelText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     ambushLabelText:SetPoint("TOPLEFT", panel, "TOPLEFT", 320, -575)
-    ambushLabelText:SetText("Ambush:")
+    ambushLabelText:SetText(L["Ambush:"])
 
     local ambushLabelEdit = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
     ambushLabelEdit:SetSize(156, 20)
@@ -4824,7 +4824,7 @@ EnsureOptionsPanel = function()
     local restoreNamesButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     restoreNamesButton:SetSize(180, 24)
     restoreNamesButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 320, -764)
-    restoreNamesButton:SetText("Restore Default Names")
+    restoreNamesButton:SetText(L["Restore Default Names"])
     restoreNamesButton:SetScript("OnClick", function()
         for stageIndex = 1, (MAX_STAGE - 1) do
             settings.stageLabels[stageIndex] = DEFAULT_STAGE_LABELS[stageIndex]
@@ -4840,7 +4840,7 @@ EnsureOptionsPanel = function()
     local restoreSoundsButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     restoreSoundsButton:SetSize(180, 24)
     restoreSoundsButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 320, -793)
-    restoreSoundsButton:SetText("Restore Default Sounds")
+    restoreSoundsButton:SetText(L["Restore Default Sounds"])
     restoreSoundsButton:SetScript("OnClick", function()
         settings.soundsEnabled = DEFAULTS.soundsEnabled
         settings.soundChannel = DEFAULTS.soundChannel
@@ -4865,7 +4865,7 @@ EnsureOptionsPanel = function()
     local resetAllButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     resetAllButton:SetSize(180, 24)
     resetAllButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 320, -821)
-    resetAllButton:SetText("Reset All Defaults")
+    resetAllButton:SetText(L["Reset All Defaults"])
     resetAllButton:SetScript("OnClick", function()
         ResetAllSettings()
         if panel.PreydatorRefreshControls then
@@ -4875,11 +4875,11 @@ EnsureOptionsPanel = function()
 
     local customSoundTitle = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     customSoundTitle:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -659)
-    customSoundTitle:SetText("Custom Sound Files: No Spaces")
+    customSoundTitle:SetText(L["Custom Sound Files: No Spaces"])
 
     local customSoundPathLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     customSoundPathLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -687)
-    customSoundPathLabel:SetText("Interface\\AddOns\\Preydator\\sounds\\")
+    customSoundPathLabel:SetText(L["Interface\\AddOns\\Preydator\\sounds\\"])
 
     local customSoundEdit = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
     customSoundEdit:SetSize(210, 20)
@@ -4891,11 +4891,11 @@ EnsureOptionsPanel = function()
     local addCustomSoundButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     addCustomSoundButton:SetSize(100, 22)
     addCustomSoundButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -743)
-    addCustomSoundButton:SetText("Add File")
+    addCustomSoundButton:SetText(L["Add File"])
     addCustomSoundButton:SetScript("OnClick", function()
         local ok, message = AddSoundFileName(customSoundEdit:GetText())
         if not ok then
-            print("Preydator: " .. tostring(message))
+            print(L["Preydator: "] .. tostring(message))
             return
         end
 
@@ -4903,17 +4903,17 @@ EnsureOptionsPanel = function()
         if panel.PreydatorRefreshControls then
             panel.PreydatorRefreshControls()
         end
-        print("Preydator: Added sound file '" .. tostring(message) .. "'.")
+        print(string.format(L["Preydator: Added sound file '%s'."], tostring(message)))
     end)
 
     local removeCustomSoundButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     removeCustomSoundButton:SetSize(110, 22)
     removeCustomSoundButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 130, -743)
-    removeCustomSoundButton:SetText("Remove File")
+    removeCustomSoundButton:SetText(L["Remove File"])
     removeCustomSoundButton:SetScript("OnClick", function()
         local ok, message = RemoveSoundFileName(customSoundEdit:GetText())
         if not ok then
-            print("Preydator: " .. tostring(message))
+            print(L["Preydator: "] .. tostring(message))
             return
         end
 
@@ -4921,7 +4921,7 @@ EnsureOptionsPanel = function()
         if panel.PreydatorRefreshControls then
             panel.PreydatorRefreshControls()
         end
-        print("Preydator: Removed sound file '" .. tostring(message) .. "'.")
+        print(string.format(L["Preydator: Removed sound file '%s'."], tostring(message)))
     end)
 
     panelRoot:SetScript("OnShow", function()
@@ -5057,9 +5057,9 @@ EnsureOptionsPanel = function()
     local testAmbushAlertButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     testAmbushAlertButton:SetSize(170, 24)
     testAmbushAlertButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 320, -715)
-    testAmbushAlertButton:SetText("Test Ambush")
+    testAmbushAlertButton:SetText(L["Test Ambush"])
     testAmbushAlertButton:SetScript("OnClick", function()
-        TriggerAmbushAlert("Manual test", "options")
+        TriggerAmbushAlert(L["Manual test"], "options")
     end)
 
     local soundChannelDropdown = AddDropdown(panel, "Sound Channel", 320, -139, 170, channelOptions, function()
@@ -5157,26 +5157,26 @@ EnsureOptionsPanel = function()
             state.stageSoundPlayed[stageIndex] = nil
             local path = ResolveStageSoundPath(stageIndex)
             if not path then
-                print("Preydator: No stage " .. stageIndex .. " sound configured.")
+                print(string.format(L["Preydator: No stage %d sound configured."], stageIndex))
                 return
             end
 
             if not TryPlayStageSound(stageIndex, true) then
-                print("Preydator: Stage " .. stageIndex .. " sound file failed to play. Ensure this file exists as .ogg: " .. tostring(path))
+                print(string.format(L["Preydator: Stage %d sound file failed to play. Ensure this file exists as .ogg: %s"], stageIndex, tostring(path)))
             end
         end)
     end
 
-    AddSoundTestButton("Test Stage 1", 320, -631, 1)
-    AddSoundTestButton("Test Stage 2", 320, -659, 2)
-    AddSoundTestButton("Test Stage 3", 320, -687, 3)
+    AddSoundTestButton(string.format(L["Test Stage %d"], 1), 320, -631, 1)
+    AddSoundTestButton(string.format(L["Test Stage %d"], 2), 320, -659, 2)
+    AddSoundTestButton(string.format(L["Test Stage %d"], 3), 320, -687, 3)
 
     local note = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     note:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -603)
     note:SetWidth(260)
     note:SetJustifyH("LEFT")
     note:SetWordWrap(true)
-    note:SetText("Enhance Sounds layers extra plays for perceived loudness. WoW does not expose true per-addon file volume.")
+    note:SetText(L["Enhance Sounds layers extra plays for perceived loudness. WoW does not expose true per-addon file volume."])
 
     if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
         local category = Settings.RegisterCanvasLayoutCategory(panelRoot, "Preydator", "Preydator")
@@ -5310,39 +5310,39 @@ local function HandleSlashCommand(message)
         if mode == "on" then
             settings.debugSounds = true
             debugDB.enabled = true
-            print("Preydator: Debug logging enabled.")
+            print(L["Preydator: Debug logging enabled."])
             return
         end
 
         if mode == "off" then
             settings.debugSounds = false
             debugDB.enabled = false
-            print("Preydator: Debug logging disabled.")
+            print(L["Preydator: Debug logging disabled."])
             return
         end
 
         if mode == "clear" then
             debugDB.entries = {}
-            print("Preydator: Debug log cleared.")
+            print(L["Preydator: Debug log cleared."])
             return
         end
 
         if mode == "show" or mode == "" then
             local total = #debugDB.entries
             if total == 0 then
-                print("Preydator: Debug log is empty.")
+                print(L["Preydator: Debug log is empty."])
                 return
             end
 
             local fromIndex = math.max(1, total - 19)
-            print("Preydator: Debug log (last " .. (total - fromIndex + 1) .. " of " .. total .. ")")
+            print(string.format(L["Preydator: Debug log (last %d of %d)"], (total - fromIndex + 1), total))
             for index = fromIndex, total do
                 print("  " .. debugDB.entries[index])
             end
             return
         end
 
-        print("Preydator: debug commands are 'debug on', 'debug off', 'debug show', 'debug clear'.")
+        print(L["Preydator: debug commands are 'debug on', 'debug off', 'debug show', 'debug clear'."])
         return
     end
 
@@ -5350,7 +5350,7 @@ local function HandleSlashCommand(message)
         state.forceShowBar = true
         settings.forceShowBar = true
         UpdateBarDisplay()
-        print("Preydator: Progress bar forced visible.")
+        print(L["Preydator: Progress bar forced visible."])
         return
     end
 
@@ -5358,7 +5358,7 @@ local function HandleSlashCommand(message)
         state.forceShowBar = false
         settings.forceShowBar = false
         UpdateBarDisplay()
-        print("Preydator: Progress bar auto mode restored.")
+        print(L["Preydator: Progress bar auto mode restored."])
         return
     end
 
@@ -5366,7 +5366,7 @@ local function HandleSlashCommand(message)
         state.forceShowBar = not state.forceShowBar
         settings.forceShowBar = state.forceShowBar
         UpdateBarDisplay()
-        print("Preydator: Progress bar force show = " .. tostring(state.forceShowBar))
+        print(string.format(L["Preydator: Progress bar force show = %s"], tostring(state.forceShowBar)))
         return
     end
 
@@ -5396,7 +5396,7 @@ local function HandleSlashCommand(message)
         return
     end
 
-    print("Preydator commands: options | show | hide | toggle | mem | debug <on|off|show|clear>")
+    print(L["Preydator commands: options | show | hide | toggle | mem | debug <on|off|show|clear>"])
 end
 
 frame:SetScript("OnEvent", function(_, event, arg1, arg2)

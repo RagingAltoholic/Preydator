@@ -179,13 +179,13 @@ function DebugInspectModule:OnSlashCommand(text, rest)
     if mode == "bugsack" or mode == "both" then
         local sent, reason = SendToErrorHandler(reportText)
         if sent then
-            print("Preydator: Inspect report sent to BugSack via error handler (debug module).")
+            print(L["Preydator: Inspect report sent to BugSack via error handler (debug module)."])
         else
-            print("Preydator: Could not send inspect report to BugSack: " .. tostring(reason))
+            print(L["Preydator: Could not send inspect report to BugSack: "] .. tostring(reason))
         end
     end
 
-    print("Preydator: Inspect report cached in PreydatorLastInspectReport (debug module).")
+    print(L["Preydator: Inspect report cached in PreydatorLastInspectReport (debug module)."])
     return true
 end
 
