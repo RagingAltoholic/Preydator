@@ -542,6 +542,31 @@ Progress:
 - [x] F.2 Runtime audio delegation switched to V2-first with legacy fallback.
 - [ ] F.3 In-game parity validation pass (stage sounds + ambush dedupe + toggle behavior).
 
+### Slice G start (customization ownership foundation)
+
+Objective:
+Lay down migration-safe CustomizationStateV2 scaffolding and inspect-visible migration telemetry before category-by-category settings rewiring.
+
+Implemented in this slice:
+1. `CustomizationStateV2` now performs lazy one-time bootstrap of `settings.customizationV2` with:
+    - `schemaVersion`
+    - `initialized`
+    - `migrationComplete`
+    - `migratedAt`
+    - `migrationSource`
+2. Added foundational V2 customization data scaffolds:
+    - `moduleEnabled` defaults (`bar`, `sounds`, `currency`, `warband`, `achievement`, `hunt`)
+    - `sharedTheme` seed (font, scale, palette from existing settings)
+    - `difficultySymbols` (`auto`, `override`, `color`)
+3. `CustomizationStateV2:Get` and `Set` now support dotted paths while preserving legacy flat-key access.
+4. Added `CustomizationStateV2:GetMigrationState()` and `IsModuleEnabled(moduleKey)` for cutover telemetry and module gating groundwork.
+5. `DebugInspect` now prints V2 customization migration status and module-enabled flags for quick paste-based validation.
+
+Progress:
+- [x] G.0 Foundation scaffold: migration metadata + module/theme/tokens scaffolds.
+- [x] G.0 Inspect visibility: customization migration and module flags now visible in inspect output.
+- [ ] G.1 Category read-path cutover (bar first).
+
 ## Notes from external addon comparison (ethical pattern review)
 
 Keep: technique-level lessons, not code copying.
@@ -992,3 +1017,4 @@ Recommended order:
 4. Allow players to customize their themes so setting up a tab that has all the colors pbroken up by Primary secondary, rows for the bars and the fonts. Customize font selection. Maybe add a Font folder so people can add their own fonts like how we do sounds, same with Textures for the fill or even the Theme Rows if they want to add textures there.
 5. Since we can now get the zone from the quests thanks to Hunt Tracker let's add an option that the out of zone message is instead travel to zone X
 6. Ability to hide the Bar but keep the sounds.
+7. There should be a native to WoW code that tells us that the prey system was been reset or part of the weekly reset so that we can always have the number of Prey available correct each week without needing to toon hop.

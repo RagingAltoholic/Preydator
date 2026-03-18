@@ -15,7 +15,7 @@ local tonumber = _G.tonumber
 local tostring = _G.tostring
 local type = _G.type
 
-local AMBUSH_CHAT_DEDUPE_SECONDS = 30
+local AMBUSH_CHAT_DEDUPE_SECONDS = 45
 
 local function GetApi()
     return type(Preydator.API) == "table" and Preydator.API or nil
@@ -158,6 +158,12 @@ function PreyAudioV2:TriggerAmbushAlert(message, source)
         return
     end
 
+    -- Stage 4 means prey is already engaged/kill-ready; ambush alerts are no longer relevant.
+    if tonumber(state.stage) and tonumber(state.stage) >= 4 then
+        AddDebugLog("Ambush", "Suppressed at stage " .. tostring(state.stage) .. " from " .. tostring(source), false)
+        return
+    end
+
     local now = GetTime and GetTime() or 0
     if ((state.lastAmbushAlertAt or 0) + AMBUSH_CHAT_DEDUPE_SECONDS) > now then
         AddDebugLog("Ambush", "Deduped from " .. tostring(source) .. ": " .. tostring(message), false)
@@ -174,7 +180,7 @@ function PreyAudioV2:TriggerAmbushAlert(message, source)
         state.ambushAlertUntil = now + alertDuration
     end
 
-    if not settings or settings.ambushSoundEnabled ~= false then
+    if (not settings or settings.soundsEnabled ~= false) and (not settings or settings.ambushSoundEnabled ~= false) then
         local ambushPath = ResolveAmbushAlertSoundPath()
         if ambushPath then
             local channel = (settings and settings.soundChannel) or "SFX"

@@ -26,16 +26,18 @@ Players choose Preydator because it delivers:
 
 Preydator is a focused, Midnight‑specific companion designed to enhance the hunt without overwhelming your screen or your workflow.
 
-### Major Features (v1.7.3)
+### Major Features (v1.7.4-dev)
 
 *   Real‑time prey stage tracking with fallback percent modes
 *   Predator‑style audio cues for stages and ambushes
 *   Fully customizable progress bar (textures, colors, fonts, percent modes, vertical orientation, spark line)
+*   Bar accessibility presets in Visual Style (`Default`, `Deuteranopia`, `Protanopia`) for quick colorblind-friendly setup
 *   Edit Mode quick‑settings window with click‑to‑open behavior
 *   Prey Currency Tracker with session deltas, themes, and layout controls
 *   Warband currency table with sorting, grouping, and tracked‑currency visibility
 *   Hunt Table companion panel with reward icons, grouping/sorting, and direct accept/open actions
 *   Warband prey overview with Normal/Hard/Nightmare (N/H/Ni) difficulty tracking and weekly‑aware snapshots
+*   Theme editor with custom save/delete, live preview pane behavior, and shared font support across themed panels
 *   Localization infrastructure for 10 languages (community translators welcome)
 *   Debug and diagnostics tools (`/pd inspect`, `/pd mem`, `/pd debug`)
 
@@ -53,6 +55,12 @@ Preydator continues to expand into a full Midnight Prey companion. Upcoming feat
     More reliable hunt discovery, improved grouping, and cleaner fallback behavior across NPC contexts.
 *   **Modular runtime improvements**  
     Cleaner internal modules for prey state, UI rendering, and diagnostics to keep the addon fast, stable, and future‑proof.
+
+### Current Development Focus
+
+*   Weekly cap counter UX and reset-aware tier progression logic
+*   Achievement-gap highlighting in Hunt Table rows
+*   Continued scanner edge-case hardening and UI polish
 
 ### Support & Feedback
 

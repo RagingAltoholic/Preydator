@@ -1427,8 +1427,13 @@ local function TriggerAmbushAlert(message, source)
     end
 
     -- Fallback keeps alert behavior available if the audio module is unavailable.
+    if tonumber(state.stage) and tonumber(state.stage) >= 4 then
+        AddDebugLog("Ambush", "Suppressed at stage " .. tostring(state.stage) .. " from " .. tostring(source), false)
+        return
+    end
+
     local now = GetTime and GetTime() or 0
-    if ((state.lastAmbushAlertAt or 0) + 30.0) > now then
+    if ((state.lastAmbushAlertAt or 0) + 45.0) > now then
         AddDebugLog("Ambush", "Deduped from " .. tostring(source) .. ": " .. tostring(message), false)
         return
     end
@@ -1441,7 +1446,7 @@ local function TriggerAmbushAlert(message, source)
         state.ambushAlertUntil = now + AMBUSH_ALERT_DURATION_SECONDS
     end
 
-    if settings.ambushSoundEnabled ~= false then
+    if settings.soundsEnabled ~= false and settings.ambushSoundEnabled ~= false then
         local ambushPath = ResolveAmbushAlertSoundPath()
         if ambushPath then
             PlaySoundFile(ambushPath, (settings and settings.soundChannel) or "SFX")

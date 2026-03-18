@@ -154,8 +154,14 @@ function PreyAudioModule:TriggerAmbushAlert(message, source)
         return
     end
 
+    if tonumber(state.stage) and tonumber(state.stage) >= 4 then
+        AddDebugLog("Ambush", "Suppressed at stage " .. tostring(state.stage) .. " from " .. tostring(source), false)
+        return
+    end
+
     local now = GetTime and GetTime() or 0
-    if state.lastAmbushSystemMessage == message and ((state.lastAmbushAlertAt or 0) + 3.0) > now then
+    if ((state.lastAmbushAlertAt or 0) + 45.0) > now then
+        AddDebugLog("Ambush", "Deduped from " .. tostring(source) .. ": " .. tostring(message), false)
         return
     end
 
@@ -169,7 +175,7 @@ function PreyAudioModule:TriggerAmbushAlert(message, source)
         state.ambushAlertUntil = now + alertDuration
     end
 
-    if not settings or settings.ambushSoundEnabled ~= false then
+    if (not settings or settings.soundsEnabled ~= false) and (not settings or settings.ambushSoundEnabled ~= false) then
         local ambushPath = ResolveAmbushAlertSoundPath()
         if ambushPath then
             local channel = (settings and settings.soundChannel) or "SFX"

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.7.4 - 2026-03-17
+
+### Added
+- Added Bar accessibility dropdown in `Bar > Visual Style` with presets: `Default`, `Deuteranopia`, and `Protanopia`.
+- Added Theme editor font selection support and persisted custom-theme `fontKey` metadata.
+- Added Theme editor `Class color Names` toggle (default ON) for Warband character-name coloring.
+
+### Changed
+- Theme preview can now be driven directly from Theme settings and applies live while editing.
+- Hunt Table theme resolution now supports custom themes and Theme editor preview state, preventing default-color fallback during preview.
+- Hunt row layout reflow scheduling was stabilized to reduce row bounce/jitter during render refreshes.
+- Currency and Hunt panels now honor theme font settings from built-in/custom themes.
+
+### Fixed
+- Deleting a custom theme now safely reassigns active theme references to `brown` where needed.
+- Theme preview state now auto-clears when Options closes.
+- Warband class-name coloring now respects the new class-color toggle.
+
 ## 1.7.3 - 2026-03-15
 
 ### Fixed

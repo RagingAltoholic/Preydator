@@ -84,6 +84,8 @@ local CURRENCY_ALLOW_LIST = {
     { id = 3383, name = "Adventurer Dawncrest", label = "Adv. Crest", season = "S1" },
     { id = 3341, name = "Veteran Dawncrest", label = "Vet. Crest", season = "S1" },
     { id = 3343, name = "Champion Dawncrest", label = "Champ. Crest", season = "S1" },
+    { id = 3345, name = "Hero Dawncrest", label = "Hero Crest", season = "S1" },
+    { id = 3310, name = "Coffer Key Shards", label = "Coffer Keys", season = "S1" },
 }
 
 local ALLOW_LIST_IDS = {}
@@ -160,6 +162,7 @@ local THEME_PRESETS = {
         text = { 0.10, 0.09, 0.07, 1.00 },
         muted = { 0.28, 0.25, 0.21, 1.00 },
         season = { 0.13, 0.34, 0.67, 1.00 },
+        fontKey = "frizqt",
     },
     brown = {
         section = { 0.08, 0.06, 0.03, 0.92 },
@@ -171,6 +174,7 @@ local THEME_PRESETS = {
         text = { 1.00, 1.00, 1.00, 1 },
         muted = { 0.74, 0.70, 0.60, 1 },
         season = { 0.60, 0.80, 1.00, 1 },
+        fontKey = "frizqt",
     },
     dark = {
         section = { 0.07, 0.07, 0.09, 0.92 },
@@ -182,7 +186,42 @@ local THEME_PRESETS = {
         text = { 1.00, 1.00, 1.00, 1 },
         muted = { 0.65, 0.65, 0.70, 1 },
         season = { 0.60, 0.80, 1.00, 1 },
+        fontKey = "frizqt",
     },
+    -- Deuteranopia: blue/amber palette safe for green-weakness (most common, ~8% of males)
+    deuteranopia = {
+        section = { 0.06, 0.07, 0.14, 0.92 },
+        row     = { 0.10, 0.12, 0.22, 0.92 },
+        rowAlt  = { 0.08, 0.09, 0.17, 0.92 },
+        border  = { 0.90, 0.60, 0.10, 0.95 },
+        header  = { 0.14, 0.16, 0.30, 1.00 },
+        title   = { 1.00, 0.74, 0.00, 1.00 },
+        text    = { 1.00, 1.00, 1.00, 1.00 },
+        muted   = { 0.65, 0.68, 0.84, 1.00 },
+        season  = { 0.35, 0.65, 1.00, 1.00 },
+        fontKey = "frizqt",
+    },
+    -- Protanopia: cyan/yellow palette safe for red-weakness (~2% of males)
+    protanopia = {
+        section = { 0.03, 0.10, 0.13, 0.92 },
+        row     = { 0.06, 0.16, 0.20, 0.92 },
+        rowAlt  = { 0.04, 0.12, 0.16, 0.92 },
+        border  = { 0.00, 0.72, 0.82, 0.95 },
+        header  = { 0.08, 0.20, 0.26, 1.00 },
+        title   = { 0.00, 0.88, 1.00, 1.00 },
+        text    = { 1.00, 1.00, 1.00, 1.00 },
+        muted   = { 0.50, 0.74, 0.80, 1.00 },
+        season  = { 1.00, 0.86, 0.00, 1.00 },
+        fontKey = "frizqt",
+    },
+}
+
+local THEME_COLOR_KEYS = { "section", "row", "rowAlt", "border", "header", "title", "text", "muted", "season" }
+local FONT_PATHS = {
+    frizqt = "Fonts\\FRIZQT__.TTF",
+    arialn = "Fonts\\ARIALN.TTF",
+    skurri = "Fonts\\skurri.ttf",
+    morpheus = "Fonts\\MORPHEUS.TTF",
 }
 
 --------------------------------------------------------------------------------
@@ -679,13 +718,14 @@ local function ClampFloat(value, minValue, maxValue, fallback, decimals)
     return numeric
 end
 
-local function SetFontSize(fs, size)
+local function SetFontSize(fs, size, fontPath)
     if not fs or type(fs.GetFont) ~= "function" or type(fs.SetFont) ~= "function" then
         return
     end
-    local fontPath, _, flags = fs:GetFont()
-    if fontPath then
-        fs:SetFont(fontPath, size, flags)
+    local currentPath, _, flags = fs:GetFont()
+    local resolvedPath = fontPath or currentPath
+    if resolvedPath then
+        fs:SetFont(resolvedPath, size, flags)
     end
 end
 
@@ -768,17 +808,56 @@ local function GetSettings()
     return api.GetSettings()
 end
 
+local function ResolveTheme(key, settings)
+    local function BuildTheme(source, fallback)
+        local out = {}
+        for _, colorKey in ipairs(THEME_COLOR_KEYS) do
+            local color = source and source[colorKey]
+            if type(color) ~= "table" then
+                color = fallback and fallback[colorKey]
+            end
+            if type(color) == "table" then
+                out[colorKey] = {
+                    tonumber(color[1]) or 1,
+                    tonumber(color[2]) or 1,
+                    tonumber(color[3]) or 1,
+                    tonumber(color[4]) or 1,
+                }
+            else
+                out[colorKey] = { 1, 1, 1, 1 }
+            end
+        end
+        out.fontKey = type(source and source.fontKey) == "string" and source.fontKey
+            or type(fallback and fallback.fontKey) == "string" and fallback.fontKey
+            or "frizqt"
+        return out
+    end
+
+    if THEME_PRESETS[key] then
+        return BuildTheme(THEME_PRESETS[key], THEME_PRESETS.brown)
+    end
+    if settings and type(settings.customThemes) == "table" and type(settings.customThemes[key]) == "table" then
+        return BuildTheme(settings.customThemes[key], THEME_PRESETS.brown)
+    end
+    return BuildTheme(THEME_PRESETS.brown, THEME_PRESETS.brown)
+end
+
+local function GetThemeFontPath(theme)
+    local fontKey = theme and theme.fontKey
+    return FONT_PATHS[fontKey] or FONT_PATHS.frizqt
+end
+
 local function GetThemePreset()
     local settings = GetSettings()
     local key = settings and settings.currencyTheme or "brown"
-    return THEME_PRESETS[key] or THEME_PRESETS.brown
+    return ResolveTheme(key, settings)
 end
 
 local function GetWarbandThemePreset()
     local settings = GetSettings()
     local useCurrencyTheme = not settings or settings.currencyWarbandUseCurrencyTheme ~= false
     local key = useCurrencyTheme and (settings and settings.currencyTheme or "brown") or (settings and settings.currencyWarbandTheme or "brown")
-    return THEME_PRESETS[key] or THEME_PRESETS.brown
+    return ResolveTheme(key, settings)
 end
 
 local function EnsureTrackerSettings()
@@ -843,6 +922,10 @@ local function EnsureTrackerSettings()
         settings.currencyWarbandUseCurrencyTheme = true
     end
 
+    if settings.themeUseClassColors == nil then
+        settings.themeUseClassColors = true
+    end
+
     if type(settings.currencyWarbandTheme) ~= "string" then
         settings.currencyWarbandTheme = "brown"
     end
@@ -889,8 +972,8 @@ local function EnsureTrackerSettings()
     if type(settings.randomHuntCosts.hard) ~= "number" or settings.randomHuntCosts.hard <= 0 then
         settings.randomHuntCosts.hard = 50
     end
-    if type(settings.randomHuntCosts.nightmare) ~= "number" then
-        settings.randomHuntCosts.nightmare = 0
+    if type(settings.randomHuntCosts.nightmare) ~= "number" or settings.randomHuntCosts.nightmare <= 0 then
+        settings.randomHuntCosts.nightmare = 50
     end
 
     settings.currencyWindowWidth = ClampNumber(settings.currencyWindowWidth, TRACKER_MIN_WIDTH, TRACKER_MAX_WIDTH, TRACKER_WINDOW_WIDTH)
@@ -1439,6 +1522,8 @@ EnsureWarbandWindow = function()
         { key = 3383, label = L["Adv"],      width = 48 },
         { key = 3341, label = L["Vet"],      width = 48 },
         { key = 3343, label = L["Champ"],    width = 56 },
+        { key = 3345, label = L["Hero"],     width = 48 },
+        { key = 3310, label = L["Coffer"],   width = 54 },
     }
 
     warbandHeaderTexts = {}
@@ -1524,7 +1609,8 @@ local function ApplyWarbandColumnLayout(showRealm)
 
     local settings = GetSettings()
     local windowWidth, windowHeight, fontSize, windowScale = GetWarbandWindowConfig()
-    local orderedCurrencyIDs = { 3392, 3316, 3383, 3341, 3343 }
+    local themeFont = GetThemeFontPath(GetWarbandThemePreset())
+    local orderedCurrencyIDs = { 3392, 3316, 3383, 3341, 3343, 3345, 3310 }
     local trackedCurrencyIDs = {}
     for _, currencyID in ipairs(orderedCurrencyIDs) do
         if IsWarbandCurrencyTracked(settings, currencyID) then
@@ -1560,6 +1646,8 @@ local function ApplyWarbandColumnLayout(showRealm)
         [3383] = 48,
         [3341] = 48,
         [3343] = 56,
+        [3345] = 48,
+        [3310] = 54,
     }
 
     local preyWidth = (settings and settings.currencyWarbandShowPreyTrack ~= false) and 56 or 0
@@ -1609,14 +1697,16 @@ local function ApplyWarbandColumnLayout(showRealm)
         [3383] = currencyWidths[3383],
         [3341] = currencyWidths[3341],
         [3343] = currencyWidths[3343],
+        [3345] = currencyWidths[3345],
+        [3310] = currencyWidths[3310],
     }
 
     if warbandWindowSummary then
         warbandWindowSummary:SetWidth(tableWidth)
-        SetFontSize(warbandWindowSummary, math.max(10, fontSize - 2))
+        SetFontSize(warbandWindowSummary, math.max(10, fontSize - 2), themeFont)
     end
     if warbandWindow.PreydatorTitle then
-        SetFontSize(warbandWindow.PreydatorTitle, fontSize)
+        SetFontSize(warbandWindow.PreydatorTitle, fontSize, themeFont)
     end
 
     local x = 12
@@ -1640,8 +1730,8 @@ local function ApplyWarbandColumnLayout(showRealm)
                 totalText:SetPoint("TOPLEFT", warbandWindow, "TOPLEFT", x + 2, -40)
                 totalText:SetWidth(width - 4)
                 totalText:SetJustifyH((key == "character" or key == "realm") and "LEFT" or "RIGHT")
-                SetFontSize(totalText, math.max(10, fontSize - 2))
-                SetFontSize(headerText, math.max(10, fontSize - 2))
+                SetFontSize(totalText, math.max(10, fontSize - 2), themeFont)
+                SetFontSize(headerText, math.max(10, fontSize - 2), themeFont)
                 x = x + width
             end
         end
@@ -1668,7 +1758,7 @@ local function ApplyWarbandColumnLayout(showRealm)
                 cell:SetPoint("TOPLEFT", row, "TOPLEFT", cellX + 2, -1)
                 cell:SetWidth(width - 4)
                 cell:SetJustifyH((key == "character" or key == "realm") and "LEFT" or "RIGHT")
-                SetFontSize(cell, math.max(10, fontSize - 1))
+                SetFontSize(cell, math.max(10, fontSize - 1), themeFont)
                 cellX = cellX + width
             else
                 cell:Hide()
@@ -1824,6 +1914,7 @@ local function RefreshWarbandWindowDisplay()
 
     local settings = GetSettings()
     local theme = GetWarbandThemePreset()
+    local useClassColors = not settings or settings.themeUseClassColors ~= false
     local showRealm = settings and settings.currencyShowRealmInWarband == true
     ApplyWarbandColumnLayout(showRealm)
 
@@ -1841,6 +1932,12 @@ local function RefreshWarbandWindowDisplay()
     end
     if warbandWindowSummary then
         SetTextColor(warbandWindowSummary, theme.muted)
+    end
+    for _, text in pairs(warbandHeaderTexts) do
+        SetTextColor(text, theme.title)
+    end
+    for _, text in pairs(warbandTotalTexts) do
+        SetTextColor(text, theme.text)
     end
 
     RebuildWarbandTotals()
@@ -1907,6 +2004,8 @@ local function RefreshWarbandWindowDisplay()
                         [3383] = 0,
                         [3341] = 0,
                         [3343] = 0,
+                        [3345] = 0,
+                        [3310] = 0,
                     },
                 }
                 groups[realmName] = group
@@ -1929,6 +2028,8 @@ local function RefreshWarbandWindowDisplay()
             group.totals[3383] = group.totals[3383] + ((rowData.snaps[3383] and rowData.snaps[3383].quantity) or 0)
             group.totals[3341] = group.totals[3341] + ((rowData.snaps[3341] and rowData.snaps[3341].quantity) or 0)
             group.totals[3343] = group.totals[3343] + ((rowData.snaps[3343] and rowData.snaps[3343].quantity) or 0)
+            group.totals[3345] = group.totals[3345] + ((rowData.snaps[3345] and rowData.snaps[3345].quantity) or 0)
+            group.totals[3310] = group.totals[3310] + ((rowData.snaps[3310] and rowData.snaps[3310].quantity) or 0)
         end
 
         table.sort(orderedGroups, function(left, right)
@@ -2011,6 +2112,8 @@ local function RefreshWarbandWindowDisplay()
                 rowData.cells[3383]:SetText(tostring(data.totals[3383] or 0))
                 rowData.cells[3341]:SetText(tostring(data.totals[3341] or 0))
                 rowData.cells[3343]:SetText(tostring(data.totals[3343] or 0))
+                if rowData.cells[3345] then rowData.cells[3345]:SetText(tostring(data.totals[3345] or 0)) end
+                if rowData.cells[3310] then rowData.cells[3310]:SetText(tostring(data.totals[3310] or 0)) end
                 SetTextColor(rowData.cells.realm, theme.title)
                 SetTextColor(rowData.cells.character, theme.muted)
                 SetTextColor(rowData.cells.prey, theme.muted)
@@ -2019,6 +2122,8 @@ local function RefreshWarbandWindowDisplay()
                 SetTextColor(rowData.cells[3383], theme.title)
                 SetTextColor(rowData.cells[3341], theme.title)
                 SetTextColor(rowData.cells[3343], theme.title)
+                if rowData.cells[3345] then SetTextColor(rowData.cells[3345], theme.title) end
+                if rowData.cells[3310] then SetTextColor(rowData.cells[3310], theme.title) end
                 rowData.frame:SetScript("OnClick", function()
                     local collapsedRealms = settings.currencyWarbandCollapsedRealms
                     collapsedRealms[data.realm] = not (collapsedRealms[data.realm] == true)
@@ -2033,11 +2138,13 @@ local function RefreshWarbandWindowDisplay()
                 rowData.cells[3383]:SetText(tostring((data.snaps[3383] and data.snaps[3383].quantity) or 0))
                 rowData.cells[3341]:SetText(tostring((data.snaps[3341] and data.snaps[3341].quantity) or 0))
                 rowData.cells[3343]:SetText(tostring((data.snaps[3343] and data.snaps[3343].quantity) or 0))
+                if rowData.cells[3345] then rowData.cells[3345]:SetText(tostring((data.snaps[3345] and data.snaps[3345].quantity) or 0)) end
+                if rowData.cells[3310] then rowData.cells[3310]:SetText(tostring((data.snaps[3310] and data.snaps[3310].quantity) or 0)) end
 
                 SetTextColor(rowData.cells.realm, theme.muted)
                 local classFile = data.snaps[3392] and data.snaps[3392].classFile
                 local classColor = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-                if classColor then
+                if useClassColors and classColor then
                     rowData.cells.character:SetTextColor(classColor.r, classColor.g, classColor.b, 1)
                 else
                     SetTextColor(rowData.cells.character, theme.text)
@@ -2048,6 +2155,8 @@ local function RefreshWarbandWindowDisplay()
                 SetTextColor(rowData.cells[3383], theme.text)
                 SetTextColor(rowData.cells[3341], theme.text)
                 SetTextColor(rowData.cells[3343], theme.text)
+                if rowData.cells[3345] then SetTextColor(rowData.cells[3345], theme.text) end
+                if rowData.cells[3310] then SetTextColor(rowData.cells[3310], theme.text) end
                 rowData.frame:SetScript("OnClick", nil)
             end
         end
@@ -2093,6 +2202,14 @@ local function RefreshWarbandWindowDisplay()
             SetTextColor(text, theme.muted)
         end
     end
+    if warbandTotalTexts[3345] then
+        warbandTotalTexts[3345]:SetText(tostring((db and db.warbandTotal and db.warbandTotal[3345]) or 0))
+        SetTextColor(warbandTotalTexts[3345], theme.title)
+    end
+    if warbandTotalTexts[3310] then
+        warbandTotalTexts[3310]:SetText(tostring((db and db.warbandTotal and db.warbandTotal[3310]) or 0))
+        SetTextColor(warbandTotalTexts[3310], theme.title)
+    end
 end
 
 local function RefreshCurrencyWindowDisplay()
@@ -2106,6 +2223,7 @@ local function RefreshCurrencyWindowDisplay()
     local gainColor = (settings and settings.currencyDeltaGainColor) or COLOR_GREEN
     local lossColor = (settings and settings.currencyDeltaLossColor) or COLOR_RED
     local seasonColor = theme.season or COLOR_SEASON
+    local themeFont = GetThemeFontPath(theme)
     local configuredWidth, configuredHeight, configuredFontSize, configuredScale = GetCurrencyWindowConfig()
     local tracked = GetTrackedCurrencyEntries()
 
@@ -2138,7 +2256,7 @@ local function RefreshCurrencyWindowDisplay()
         currencyWindowSummary:SetShown(showAffordableHunts)
         currencyWindowSummary:SetWidth(configuredWidth - 28)
         SetTextColor(currencyWindowSummary, theme.muted)
-        SetFontSize(currencyWindowSummary, math.max(10, configuredFontSize - 2))
+        SetFontSize(currencyWindowSummary, math.max(10, configuredFontSize - 2), themeFont)
     end
 
     local rowStartY = showAffordableHunts and -68 or -40
@@ -2155,7 +2273,7 @@ local function RefreshCurrencyWindowDisplay()
             end
             row.nameText:SetText(entry.label)
             SetTextColor(row.nameText, entry.season and seasonColor or theme.text)
-            SetFontSize(row.nameText, configuredFontSize)
+            SetFontSize(row.nameText, configuredFontSize, themeFont)
 
             local iconID = GetCurrencyIcon(entry.id)
             if iconID and iconID > 0 then
@@ -2167,18 +2285,18 @@ local function RefreshCurrencyWindowDisplay()
             local qty = GetCurrencyQuantity(entry.id)
             row.qtyText:SetText(tostring(qty))
             SetTextColor(row.qtyText, qty > 0 and theme.text or theme.muted)
-            SetFontSize(row.qtyText, configuredFontSize)
+            SetFontSize(row.qtyText, configuredFontSize, themeFont)
 
             local delta = SessionDelta(entry.id)
             if delta > 0 then
                 row.deltaText:SetText("+" .. tostring(delta))
                 SetTextColor(row.deltaText, gainColor)
-                SetFontSize(row.deltaText, math.max(10, configuredFontSize - 2))
+                SetFontSize(row.deltaText, math.max(10, configuredFontSize - 2), themeFont)
                 row.deltaText:Show()
             elseif delta < 0 then
                 row.deltaText:SetText(tostring(delta))
                 SetTextColor(row.deltaText, lossColor)
-                SetFontSize(row.deltaText, math.max(10, configuredFontSize - 2))
+                SetFontSize(row.deltaText, math.max(10, configuredFontSize - 2), themeFont)
                 row.deltaText:Show()
             else
                 row.deltaText:SetText("")
@@ -2193,7 +2311,7 @@ local function RefreshCurrencyWindowDisplay()
     local costs = settings and settings.randomHuntCosts or {}
     local normalCost = tonumber(costs.normal) or 50
     local hardCost = tonumber(costs.hard) or 50
-    local nightmareCost = tonumber(costs.nightmare) or 0
+    local nightmareCost = tonumber(costs.nightmare) or 50
 
     local normalCount = normalCost > 0 and math.floor(anguish / normalCost) or 0
     local hardCount = hardCost > 0 and math.floor(anguish / hardCost) or 0
@@ -2210,7 +2328,7 @@ local function RefreshCurrencyWindowDisplay()
     end
 
     if currencyWindow.PreydatorTitle then
-        SetFontSize(currencyWindow.PreydatorTitle, configuredFontSize)
+        SetFontSize(currencyWindow.PreydatorTitle, configuredFontSize, themeFont)
     end
 end
 
@@ -2220,8 +2338,11 @@ local function BuildCurrencyConfigPage(parent)
         return
     end
 
+    local COLUMN_LEFT_X = 5
+    local COLUMN_RIGHT_X = 221
+
     local title = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", parent, "TOPLEFT", 18, -12)
+    title:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_LEFT_X, -12)
     title:SetText(L["Currency Tracker"])
 
 
@@ -2234,7 +2355,7 @@ local function BuildCurrencyConfigPage(parent)
     -- Window toggles and quick theme controls (left column)
     local openButton = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     openButton:SetSize(120, 22)
-    openButton:SetPoint("TOPLEFT", parent, "TOPLEFT", 18, -36)
+    openButton:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_LEFT_X, -36)
     openButton:SetText(L["Toggle Tracker"])
     openButton:SetScript("OnClick", function()
         ToggleCurrencyWindow()
@@ -2242,11 +2363,11 @@ local function BuildCurrencyConfigPage(parent)
     end)
 
     local themeLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    themeLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 18, -64)
+    themeLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_LEFT_X, -64)
     themeLabel:SetText(L["Currency Theme"])
 
     local themeDropdown = CreateFrame("Frame", nil, parent, "UIDropDownMenuTemplate")
-    themeDropdown:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -78)
+    themeDropdown:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_LEFT_X - 18, -78)
     _G.UIDropDownMenu_SetWidth(themeDropdown, 150)
     _G.UIDropDownMenu_JustifyText(themeDropdown, "LEFT")
 
@@ -2274,14 +2395,14 @@ local function BuildCurrencyConfigPage(parent)
     end)
 
     local minimapToggle = add(CreateFrame("CheckButton", nil, parent, "InterfaceOptionsCheckButtonTemplate"))
-    minimapToggle:SetPoint("TOPLEFT", parent, "TOPLEFT", 18, -108)
+    minimapToggle:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_LEFT_X, -108)
     minimapToggle.Text:SetText(L["Disable Minimap Button"])
     minimapToggle:SetScript("OnClick", function(self)
         CurrencyTrackerModule:SetMinimapButtonEnabled(not (self:GetChecked() and true or false))
     end)
 
     local affordableToggle = add(CreateFrame("CheckButton", nil, parent, "InterfaceOptionsCheckButtonTemplate"))
-    affordableToggle:SetPoint("TOPLEFT", parent, "TOPLEFT", 18, -136)
+    affordableToggle:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_LEFT_X, -136)
     affordableToggle.Text:SetText(L["Show Affordable Hunts In Tracker"])
     affordableToggle:SetScript("OnClick", function(self)
         settings.currencyShowAffordableHunts = self:GetChecked() and true or false
@@ -2289,14 +2410,14 @@ local function BuildCurrencyConfigPage(parent)
     end)
 
     local trackedTitle = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    trackedTitle:SetPoint("TOPLEFT", parent, "TOPLEFT", 18, -192)
+    trackedTitle:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_LEFT_X, -192)
     trackedTitle:SetText(L["Currencies to Track"])
     SetTextColor(trackedTitle, COLOR_GOLD)
 
     local y = -218
     for _, entry in ipairs(CURRENCY_ALLOW_LIST) do
         local check = add(CreateFrame("CheckButton", nil, parent, "InterfaceOptionsCheckButtonTemplate"))
-        check:SetPoint("TOPLEFT", parent, "TOPLEFT", 18, y)
+        check:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_LEFT_X, y)
         local info = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(entry.id)
         check.Text:SetText((info and info.name) or entry.name)
         check:SetScript("OnClick", function(self)
@@ -2308,13 +2429,13 @@ local function BuildCurrencyConfigPage(parent)
     end
 
     local costsTitle = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    costsTitle:SetPoint("TOPLEFT", parent, "TOPLEFT", 260, -36)
+    costsTitle:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_RIGHT_X, -36)
     costsTitle:SetText(L["Random Hunt Cost (Anguish)"])
     SetTextColor(costsTitle, COLOR_GOLD)
 
     local function CreateCostInput(label, key, yOffset)
         local text = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        text:SetPoint("TOPLEFT", parent, "TOPLEFT", 260, yOffset)
+        text:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_RIGHT_X, yOffset)
         text:SetText(label)
 
         local box = add(CreateFrame("EditBox", nil, parent, "InputBoxTemplate"))
@@ -2352,7 +2473,7 @@ local function BuildCurrencyConfigPage(parent)
     local nightmareBox = CreateCostInput(L["Nightmare"], "nightmare", -120)
 
     local layoutTitle = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    layoutTitle:SetPoint("TOPLEFT", parent, "TOPLEFT", 260, -201)
+    layoutTitle:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_RIGHT_X, -201)
     layoutTitle:SetText(L["Panel Layout"])
     SetTextColor(layoutTitle, COLOR_GOLD)
 
@@ -2390,12 +2511,12 @@ local function BuildCurrencyConfigPage(parent)
 
     local function CreateLayoutSlider(yOffset, label)
         local text = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        text:SetPoint("TOPLEFT", parent, "TOPLEFT", 260, yOffset)
+        text:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_RIGHT_X, yOffset)
         text:SetText(label)
 
         local slider = CreateFrame("Slider", nil, parent, "OptionsSliderTemplate")
         slider:SetWidth(170)
-        slider:SetPoint("TOPLEFT", parent, "TOPLEFT", 260, yOffset - 18)
+        slider:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_RIGHT_X, yOffset - 18)
         slider:SetObeyStepOnDrag(true)
         if slider.Low then slider.Low:Hide() end
         if slider.High then slider.High:Hide() end
@@ -2495,7 +2616,7 @@ local function BuildCurrencyConfigPage(parent)
 
     local gainColorButton = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     gainColorButton:SetSize(120, 22)
-    gainColorButton:SetPoint("TOPLEFT", parent, "TOPLEFT", 260, -145)
+    gainColorButton:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_RIGHT_X, -145)
     gainColorButton:SetText(L["Gain Color"])
     gainColorButton:SetScript("OnClick", function()
         OpenColorPicker(settings.currencyDeltaGainColor, function(color)
@@ -2510,7 +2631,7 @@ local function BuildCurrencyConfigPage(parent)
 
     local lossColorButton = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     lossColorButton:SetSize(120, 22)
-    lossColorButton:SetPoint("TOPLEFT", parent, "TOPLEFT", 260, -173)
+    lossColorButton:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_RIGHT_X, -173)
     lossColorButton:SetText(L["Spend Color"])
     lossColorButton:SetScript("OnClick", function()
         OpenColorPicker(settings.currencyDeltaLossColor, function(color)
@@ -2572,7 +2693,7 @@ local function BuildCurrencyConfigPage(parent)
 
         normalBox:SetText(tostring(settings.randomHuntCosts.normal or 50))
         hardBox:SetText(tostring(settings.randomHuntCosts.hard or 50))
-        nightmareBox:SetText(tostring(settings.randomHuntCosts.nightmare or 0))
+        nightmareBox:SetText(tostring(settings.randomHuntCosts.nightmare or 50))
         _G.UIDropDownMenu_SetText(themeDropdown, ThemeLabelForKey(settings.currencyTheme or "brown"))
         RefreshLayoutControls()
 

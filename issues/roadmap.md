@@ -1,20 +1,23 @@
 ### Preydator Expansion Roadmap (Issue: Roadmap)
 
-## Status (as of v1.7.3)
+## Status (as of v1.7.4-dev)
 
 - Epic 1: Approved Currency Ledger (MVP) - Completed
-- Epic 2: Hunt Source Scanner - Planned
+- Epic 2: Hunt Source Scanner - In progress
 - Epic 3: Weekly Hunt Cap Tracker - In progress
 - Epic 4: Prey Achievement Gap Highlighter - Planned
 - Epic 5: Reward Intelligence and Cost Context - In progress
 - Epic 6: Localization for other Languages - Completed (infrastructure + 10 stubs; seeking community translators)
 
-Completed for Epic 1:
+Completed for Epic 1 and cross-epic UX foundations:
 
-- Approved allow-list currency tracking implemented for `3392`, `3316`, `3383`, `3341`, `3343`
+- Approved allow-list currency tracking implemented for `3392`, `3316`, `3383`, `3341`, `3343`, `3345`, `3310`
 - Session delta tracking and known-warband aggregation
 - Currency tracker and warband windows with sortable currency table
 - Currencies settings controls for tracked IDs, theme, layout, and delta colors
+- Theme system expansion: built-in colorblind presets, custom theme save/delete, and shared theme options across modules
+- Theme editor live preview and custom-theme deletion fallback behavior
+- Hunt Table settings and panel layout controls with grouped/sorted row rendering
 
 ## Scope Correction
 
@@ -212,7 +215,14 @@ Acceptance criteria:
 
 1. Add Prey Tracking per Zone as a dedicated post-launch enhancement (after v1.7.0).
 
-## Post-v1.7.3 Technical Follow-Up
+## Immediate Remaining Work
+
+1. Weekly cap tracker UI and reset-aware counters per hunt tier.
+2. Achievement gap highlighting pipeline and per-hunt badge rendering.
+3. Continue Hunt scanner edge-case hardening and verify preview/theme parity in all hunt panel states.
+4. Continue modular extraction from core runtime to reduce maintenance risk.
+
+## Post-v1.7.4 Technical Follow-Up
 
 Goal:
 Reduce maintenance risk in `Preydator.lua` and keep future Hunt/Prey work away from Lua's 200-local-variable ceiling.

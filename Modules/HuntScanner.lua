@@ -74,6 +74,9 @@ local lastObservedPreyQuestID = nil
 local lastObservedPreyStage = nil
 local lastAvailabilityNotifyKey = nil
 local panelRowHeight = 52
+local panelScrollViewport
+local panelScrollContent
+local panelScrollBar
 local availabilityCache = {
     normal = 0,
     hard = 0,
@@ -198,7 +201,10 @@ end
 
 IsOptionsPreviewVisible = function()
     local settings = GetSettings()
-    if not settings or settings.huntScannerPreviewInOptions ~= true then
+    if not settings then
+        return false
+    end
+    if settings.huntScannerPreviewInOptions ~= true and settings.themeEditorPreviewInOptions ~= true then
         return false
     end
 
@@ -212,7 +218,7 @@ local function BuildPreviewRows()
         {
             questID = nil,
             title = L["Preview: Normal Hunt"],
-            reward = "1,250 " .. L["Experience"] .. " | 45 Anguish | Preview Cache Reward",
+            reward = "1,250 " .. L["Experience"] .. " | 50 Anguish | Preview Cache Reward",
             canAccept = false,
         },
         {
@@ -240,6 +246,8 @@ local THEME_PRESETS = {
         title = { 0.12, 0.10, 0.08, 1.00 },
         text = { 0.10, 0.09, 0.07, 1.00 },
         muted = { 0.28, 0.25, 0.21, 1.00 },
+        season = { 0.13, 0.34, 0.67, 1.00 },
+        fontKey = "frizqt",
     },
     brown = {
         section = { 0.08, 0.06, 0.03, 0.92 },
@@ -250,6 +258,8 @@ local THEME_PRESETS = {
         title = { 1.00, 0.82, 0.00, 1.00 },
         text = { 1.00, 1.00, 1.00, 1.00 },
         muted = { 0.74, 0.70, 0.60, 1.00 },
+        season = { 0.60, 0.80, 1.00, 1.00 },
+        fontKey = "frizqt",
     },
     dark = {
         section = { 0.07, 0.07, 0.09, 0.92 },
@@ -260,8 +270,85 @@ local THEME_PRESETS = {
         title = { 1.00, 0.82, 0.00, 1.00 },
         text = { 1.00, 1.00, 1.00, 1.00 },
         muted = { 0.65, 0.65, 0.70, 1.00 },
+        season = { 0.60, 0.80, 1.00, 1.00 },
+        fontKey = "frizqt",
+    },
+    deuteranopia = {
+        section = { 0.06, 0.07, 0.14, 0.92 },
+        row = { 0.10, 0.12, 0.22, 0.92 },
+        rowAlt = { 0.08, 0.09, 0.17, 0.92 },
+        border = { 0.90, 0.60, 0.10, 0.95 },
+        header = { 0.14, 0.16, 0.30, 1.00 },
+        title = { 1.00, 0.74, 0.00, 1.00 },
+        text = { 1.00, 1.00, 1.00, 1.00 },
+        muted = { 0.65, 0.68, 0.84, 1.00 },
+        season = { 0.35, 0.65, 1.00, 1.00 },
+        fontKey = "frizqt",
+    },
+    protanopia = {
+        section = { 0.03, 0.10, 0.13, 0.92 },
+        row = { 0.06, 0.16, 0.20, 0.92 },
+        rowAlt = { 0.04, 0.12, 0.16, 0.92 },
+        border = { 0.00, 0.72, 0.82, 0.95 },
+        header = { 0.08, 0.20, 0.26, 1.00 },
+        title = { 0.00, 0.88, 1.00, 1.00 },
+        text = { 1.00, 1.00, 1.00, 1.00 },
+        muted = { 0.50, 0.74, 0.80, 1.00 },
+        season = { 1.00, 0.86, 0.00, 1.00 },
+        fontKey = "frizqt",
     },
 }
+
+local THEME_COLOR_KEYS = { "section", "row", "rowAlt", "border", "header", "title", "text", "muted", "season" }
+local FONT_PATHS = {
+    frizqt = "Fonts\\FRIZQT__.TTF",
+    arialn = "Fonts\\ARIALN.TTF",
+    skurri = "Fonts\\skurri.ttf",
+    morpheus = "Fonts\\MORPHEUS.TTF",
+}
+
+local function CopyThemeColors(source, fallback)
+    local out = {}
+    for _, key in ipairs(THEME_COLOR_KEYS) do
+        local color = source and source[key]
+        if type(color) ~= "table" then
+            color = fallback and fallback[key]
+        end
+        if type(color) == "table" then
+            out[key] = {
+                tonumber(color[1]) or 1,
+                tonumber(color[2]) or 1,
+                tonumber(color[3]) or 1,
+                tonumber(color[4]) or 1,
+            }
+        else
+            out[key] = { 1, 1, 1, 1 }
+        end
+    end
+    out.fontKey = type(source and source.fontKey) == "string" and source.fontKey
+        or type(fallback and fallback.fontKey) == "string" and fallback.fontKey
+        or "frizqt"
+    return out
+end
+
+local function ResolveThemeValue(key, settings)
+    local preset = THEME_PRESETS[key]
+    if preset then
+        return CopyThemeColors(preset, THEME_PRESETS.brown)
+    end
+
+    local custom = settings and settings.customThemes and settings.customThemes[key]
+    if type(custom) == "table" then
+        return CopyThemeColors(custom, THEME_PRESETS.brown)
+    end
+
+    return CopyThemeColors(THEME_PRESETS.brown, THEME_PRESETS.brown)
+end
+
+local function GetThemeFontPath(theme)
+    local fontKey = theme and theme.fontKey
+    return FONT_PATHS[fontKey] or FONT_PATHS.frizqt
+end
 
 GetSettings = function()
     local api = Preydator and Preydator.API
@@ -299,6 +386,10 @@ local function EnsureSettings()
 
     if settings.huntScannerPreviewInOptions == nil then
         settings.huntScannerPreviewInOptions = false
+    end
+
+    if settings.themeEditorPreviewInOptions == nil then
+        settings.themeEditorPreviewInOptions = false
     end
 
     if settings.huntScannerGroupBy ~= "none" and settings.huntScannerGroupBy ~= "difficulty" and settings.huntScannerGroupBy ~= "zone" then
@@ -341,9 +432,18 @@ end
 
 local function GetTheme()
     local settings = GetSettings()
+
+    if settings and settings.themeEditorPreviewInOptions == true and type(settings.themeEditorColors) == "table" then
+        local baseKey = settings.themeEditorLoadKey or "brown"
+        local baseTheme = ResolveThemeValue(baseKey, settings)
+        local previewTheme = CopyThemeColors(settings.themeEditorColors, baseTheme)
+        previewTheme.fontKey = settings.themeEditorFontKey or baseTheme.fontKey or "frizqt"
+        return previewTheme
+    end
+
     local useCurrencyTheme = not settings or settings.huntScannerUseCurrencyTheme ~= false
     local key = useCurrencyTheme and (settings and settings.currencyTheme or "brown") or (settings and settings.huntScannerTheme or "brown")
-    return THEME_PRESETS[key] or THEME_PRESETS.brown
+    return ResolveThemeValue(key, settings)
 end
 
 local function GetCoreState()
@@ -1821,10 +1921,53 @@ local function EnsurePanel()
     end)
 
     local startY = -54
+
+    -- ScrollFrame clips row content within the panel boundary
+    local scrollViewport = CreateFrame("ScrollFrame", nil, frame)
+    scrollViewport:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, startY)
+    scrollViewport:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 4)
+    scrollViewport:EnableMouseWheel(true)
+
+    local scrollContent = CreateFrame("Frame", nil, scrollViewport)
+    scrollContent:SetSize(panelWidth - 30, 12 * panelRowHeight)
+    scrollViewport:SetScrollChild(scrollContent)
+
+    local scrollBar = CreateFrame("Slider", nil, frame, "OptionsSliderTemplate")
+    scrollBar:SetOrientation("VERTICAL")
+    scrollBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -2, startY - 2)
+    scrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 6)
+    scrollBar:SetWidth(14)
+    scrollBar:SetMinMaxValues(0, 0)
+    scrollBar:SetValue(0)
+    scrollBar:SetValueStep(1)
+    scrollBar:SetObeyStepOnDrag(true)
+    if scrollBar.Low then scrollBar.Low:Hide() end
+    if scrollBar.High then scrollBar.High:Hide() end
+    if scrollBar.Text then scrollBar.Text:Hide() end
+    scrollBar:SetEnabled(false)
+    scrollBar:SetAlpha(0.3)
+    scrollBar:SetScript("OnValueChanged", function(self, value)
+        local _, maxVal = self:GetMinMaxValues()
+        local clamped = math.max(0, math.min(value or 0, maxVal or 0))
+        scrollViewport:SetVerticalScroll(clamped)
+    end)
+    scrollViewport:SetScript("OnMouseWheel", function(_, delta)
+        local _, maxVal = scrollBar:GetMinMaxValues()
+        local cur = scrollBar:GetValue() or 0
+        scrollBar:SetValue(math.max(0, math.min(cur - (delta * 20), maxVal or 0)))
+    end)
+
+    panelScrollViewport = scrollViewport
+    panelScrollContent = scrollContent
+    panelScrollBar = scrollBar
+    frame.PreydatorScrollViewport = scrollViewport
+    frame.PreydatorScrollContent = scrollContent
+    frame.PreydatorScrollBar = scrollBar
+
     for index = 1, 12 do
-        local row = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-        row:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, startY - ((index - 1) * panelRowHeight))
-        row:SetSize(panelWidth - 20, panelRowHeight - 4)
+        local row = CreateFrame("Frame", nil, scrollContent, "BackdropTemplate")
+        row:SetPoint("TOPLEFT", scrollContent, "TOPLEFT", 0, -((index - 1) * panelRowHeight))
+        row:SetSize(panelWidth - 30, panelRowHeight - 4)
         row:SetBackdrop({
             bgFile = "Interface\\Buttons\\WHITE8x8",
             edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -1885,6 +2028,7 @@ end
 local function UpdatePanelTheme(frame)
     local theme = GetTheme()
     local _, _, fontSize = GetPanelConfig()
+    local fontPath = GetThemeFontPath(theme)
 
     frame:SetBackdropColor(theme.section[1], theme.section[2], theme.section[3], theme.section[4])
     frame:SetBackdropBorderColor(theme.border[1], theme.border[2], theme.border[3], theme.border[4])
@@ -1896,10 +2040,10 @@ local function UpdatePanelTheme(frame)
     SetTextColor(frame.PreydatorTitle, theme.title)
     SetTextColor(frame.PreydatorSubtitle, theme.muted)
     if frame.PreydatorTitle and frame.PreydatorTitle.SetFont then
-        frame.PreydatorTitle:SetFont("Fonts\\FRIZQT__.TTF", math.max(11, fontSize), "")
+        frame.PreydatorTitle:SetFont(fontPath, math.max(11, fontSize), "")
     end
     if frame.PreydatorSubtitle and frame.PreydatorSubtitle.SetFont then
-        frame.PreydatorSubtitle:SetFont("Fonts\\FRIZQT__.TTF", math.max(10, fontSize - 1), "")
+        frame.PreydatorSubtitle:SetFont(fontPath, math.max(10, fontSize - 1), "")
     end
 
     for index, row in ipairs(panelRows) do
@@ -1909,10 +2053,10 @@ local function UpdatePanelTheme(frame)
         SetTextColor(row.PreydatorName, theme.title)
         SetTextColor(row.PreydatorReward, theme.text)
         if row.PreydatorName and row.PreydatorName.SetFont then
-            row.PreydatorName:SetFont("Fonts\\FRIZQT__.TTF", math.max(10, fontSize), "")
+            row.PreydatorName:SetFont(fontPath, math.max(10, fontSize), "")
         end
         if row.PreydatorReward and row.PreydatorReward.SetFont then
-            row.PreydatorReward:SetFont("Fonts\\FRIZQT__.TTF", math.max(9, fontSize - 1), "")
+            row.PreydatorReward:SetFont(fontPath, math.max(9, fontSize - 1), "")
         end
 
         if row.PreydatorAccept and row.PreydatorAccept.SetNormalFontObject then
@@ -2086,6 +2230,77 @@ local function BuildQuestRows(mapHunts)
     return rows
 end
 
+local function ReflowHuntRows()
+    if not panelScrollViewport or not panelScrollContent or not panelScrollBar or not panelFrame then
+        return
+    end
+
+    local rowWidth = panelScrollContent:GetWidth()
+    if rowWidth < 10 then
+        return
+    end
+
+    local yOffset = 0
+    local gap = 4
+    local nameLineH = 16
+    local rewardLineH = 13
+    local rowPadTop = 7
+    local rowPadBottom = 6
+
+    for index = 1, 12 do
+        local row = panelRows[index]
+        if not row then
+            break
+        end
+        if row:IsShown() then
+            local rewardH = (row.PreydatorReward and row.PreydatorReward:GetStringHeight()) or rewardLineH
+            local rowH = math.max(panelRowHeight - 4, rowPadTop + nameLineH + 3 + math.ceil(rewardH) + rowPadBottom)
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", panelScrollContent, "TOPLEFT", 0, -yOffset)
+            row:SetSize(rowWidth, rowH)
+            yOffset = yOffset + rowH + gap
+        end
+    end
+
+    panelScrollContent:SetHeight(math.max(1, yOffset))
+    panelScrollViewport:UpdateScrollChildRect()
+
+    local scrollRange = panelScrollViewport:GetVerticalScrollRange() or 0
+    scrollRange = math.max(0, scrollRange)
+    if scrollRange > 0 then
+        panelScrollBar:SetMinMaxValues(0, scrollRange)
+        local cur = math.min(panelScrollBar:GetValue() or 0, scrollRange)
+        panelScrollBar:SetValue(cur)
+        panelScrollBar:SetEnabled(true)
+        panelScrollBar:SetAlpha(1)
+    else
+        panelScrollBar:SetMinMaxValues(0, 0)
+        panelScrollBar:SetValue(0)
+        panelScrollBar:SetEnabled(false)
+        panelScrollBar:SetAlpha(0.3)
+    end
+end
+
+local reflowScheduled = false
+
+local function QueueReflowRows()
+    if reflowScheduled then
+        return
+    end
+    reflowScheduled = true
+
+    if C_Timer then
+        C_Timer.After(0, function()
+            reflowScheduled = false
+            ReflowHuntRows()
+        end)
+        return
+    end
+
+    reflowScheduled = false
+    ReflowHuntRows()
+end
+
 local function RenderPanel(questRows)
     if not IsOptionsPreviewVisible() and not HasVisibleHuntAnchor() then
         HidePanel()
@@ -2096,6 +2311,9 @@ local function RenderPanel(questRows)
     local panelWidth, panelHeight, _, panelScale = GetPanelConfig()
     frame:SetSize(panelWidth, panelHeight)
     frame:SetScale(panelScale)
+    if panelScrollContent then
+        panelScrollContent:SetWidth(panelWidth - 30)
+    end
     UpdatePanelTheme(frame)
     ApplyPanelAnchor(frame)
 
@@ -2117,10 +2335,6 @@ local function RenderPanel(questRows)
 
     for index, row in ipairs(panelRows) do
         local data = questRows[index]
-        local rowY = -54 - ((index - 1) * panelRowHeight)
-        row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, rowY)
-        row:SetSize(panelWidth - 20, panelRowHeight - 4)
         if data then
             row:Show()
             row.PreydatorQuestID = tonumber(data.questID)
@@ -2165,17 +2379,25 @@ local function RenderPanel(questRows)
                 row.PreydatorAccept:Hide()
                 row.PreydatorAccept:Disable()
             end
+            row:ClearAllPoints()
             row:SetScript("OnMouseUp", nil)
             row:Hide()
         end
     end
 
     frame:Show()
+    QueueReflowRows()
 end
 
 HidePanel = function()
     if panelFrame then
         panelFrame:Hide()
+    end
+    if panelScrollBar then
+        panelScrollBar:SetValue(0)
+    end
+    if panelScrollViewport then
+        panelScrollViewport:SetVerticalScroll(0)
     end
     huntInteractionActive = false
     snapshotSequence = snapshotSequence + 1
@@ -2335,6 +2557,30 @@ function HuntScannerModule:HandleOptionsPanelVisibility(isVisible)
         end
 
         self:RefreshNow()
+        return
+    end
+
+    local settings = GetSettings()
+    if settings then
+        settings.themeEditorPreviewInOptions = false
+    end
+
+    if not HasVisibleHuntAnchor() then
+        HidePanel()
+        return
+    end
+
+    self:RefreshNow()
+end
+
+function HuntScannerModule:SetThemePreviewEnabled(enabled)
+    local settings = GetSettings()
+    if settings then
+        settings.themeEditorPreviewInOptions = enabled == true
+    end
+
+    if IsOptionsPreviewVisible() then
+        RenderPanel(BuildPreviewRows())
         return
     end
 

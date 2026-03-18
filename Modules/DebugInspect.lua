@@ -91,6 +91,7 @@ local function BuildInspectReport()
     local lifecycleV2 = Preydator.GetModule and Preydator:GetModule("QuestLifecycleV2") or nil
     local runtimeV2 = Preydator.GetModule and Preydator:GetModule("RuntimeCoordinatorV2") or nil
     local storeV2 = Preydator.GetModule and Preydator:GetModule("HuntDataStoreV2") or nil
+    local customizationV2 = Preydator.GetModule and Preydator:GetModule("CustomizationStateV2") or nil
 
     local v2State = (lifecycleV2 and type(lifecycleV2.GetState) == "function") and lifecycleV2:GetState() or "<unavailable>"
     local v2Transition = (runtimeV2 and type(runtimeV2.GetLastTransition) == "function") and runtimeV2:GetLastTransition() or nil
@@ -100,6 +101,17 @@ local function BuildInspectReport()
     local v2TransitionQuestID = type(v2Transition) == "table" and type(v2Transition.context) == "table" and v2Transition.context.questID or nil
     local v2ActiveQuestID = type(v2ActiveHunt) == "table" and v2ActiveHunt.questID or nil
     local v2SourceType = type(v2ActiveHunt) == "table" and v2ActiveHunt.sourceType or nil
+    local v2CustomizationState = (customizationV2 and type(customizationV2.GetMigrationState) == "function") and customizationV2:GetMigrationState() or nil
+    local v2CustomizationSchema = type(v2CustomizationState) == "table" and v2CustomizationState.schemaVersion or nil
+    local v2CustomizationInitialized = type(v2CustomizationState) == "table" and v2CustomizationState.initialized or nil
+    local v2CustomizationComplete = type(v2CustomizationState) == "table" and v2CustomizationState.migrationComplete or nil
+    local v2CustomizationSource = type(v2CustomizationState) == "table" and v2CustomizationState.migrationSource or nil
+    local barEnabled = (customizationV2 and type(customizationV2.IsModuleEnabled) == "function") and customizationV2:IsModuleEnabled("bar") or nil
+    local soundsEnabled = (customizationV2 and type(customizationV2.IsModuleEnabled) == "function") and customizationV2:IsModuleEnabled("sounds") or nil
+    local currencyEnabled = (customizationV2 and type(customizationV2.IsModuleEnabled) == "function") and customizationV2:IsModuleEnabled("currency") or nil
+    local warbandEnabled = (customizationV2 and type(customizationV2.IsModuleEnabled) == "function") and customizationV2:IsModuleEnabled("warband") or nil
+    local achievementEnabled = (customizationV2 and type(customizationV2.IsModuleEnabled) == "function") and customizationV2:IsModuleEnabled("achievement") or nil
+    local huntEnabled = (customizationV2 and type(customizationV2.IsModuleEnabled) == "function") and customizationV2:IsModuleEnabled("hunt") or nil
 
     add("- v2 state=" .. tostring(v2State)
         .. " | lastEvent=" .. tostring(v2TransitionEvent)
@@ -107,6 +119,19 @@ local function BuildInspectReport()
         .. " | lastQuestID=" .. tostring(v2TransitionQuestID)
         .. " | activeQuestID=" .. tostring(v2ActiveQuestID)
         .. " | sourceType=" .. tostring(v2SourceType))
+
+    add("- v2 customization"
+        .. " | schema=" .. tostring(v2CustomizationSchema)
+        .. " | initialized=" .. tostring(v2CustomizationInitialized)
+        .. " | migrationComplete=" .. tostring(v2CustomizationComplete)
+        .. " | source=" .. tostring(v2CustomizationSource))
+    add("- v2 modules"
+        .. " | bar=" .. tostring(barEnabled)
+        .. " | sounds=" .. tostring(soundsEnabled)
+        .. " | currency=" .. tostring(currencyEnabled)
+        .. " | warband=" .. tostring(warbandEnabled)
+        .. " | achievement=" .. tostring(achievementEnabled)
+        .. " | hunt=" .. tostring(huntEnabled))
 
     add("- settings size width=" .. tostring(settings and settings.width)
         .. " | height=" .. tostring(settings and settings.height)

@@ -2,7 +2,7 @@
 
 Preydator is a focused Prey Hunt companion addon for World of Warcraft, featuring Predator-inspired audio cues, a customizable hunt progress bar, and stage-based tracking built from Blizzard quest/widget APIs.
 
-Current release: `v1.7.0`
+Current release: `v1.7.4-dev`
 
 ## What Preydator tracks
 
@@ -30,6 +30,8 @@ Important: Blizzard does not expose a true percent completion for Prey Hunts. Pr
 - Warband `Prey Track (Alts)` with `N/H/Ni` available/completed modes and weekly-aware tracking snapshots
 - Session delta tracking for approved Prey currencies
 - Theme support in currency windows: `Light`, `Brown`, `Dark`
+- Accessibility-ready theme presets across panel theming: `Deuteranopia`, `Protanopia`
+- Theme editor with custom save/delete, font selection, live preview pane, and fallback-to-brown handling when deleting active custom themes
 - One-time What's New splash for currency launch (with Show Again in Advanced tab)
 - Currencies tab now includes direct controls for tracker/warband visibility, tracked currency selection, random hunt cost context, and panel layout sliders
 
@@ -44,6 +46,10 @@ Important: Blizzard does not expose a true percent completion for Prey Hunts. Pr
 ## Display customization
 
 - Texture presets
+- Accessibility preset dropdown in Bar > Visual Style:
+  - `Default`
+  - `Deuteranopia`
+  - `Protanopia`
 - Color controls:
 	- Fill color
 	- Background color
@@ -116,11 +122,18 @@ Bundled default files:
 
 ## Roadmap progress snapshot
 
-- Epic 1: Approved Currency Ledger (MVP) - Completed and expanded through `v1.7.0`
-- Epic 2: Hunt Source Scanner - Planned
-- Epic 3: Weekly Hunt Cap Tracker - Planned
+- Epic 1: Approved Currency Ledger (MVP) - Completed and expanded through `v1.7.4-dev`
+- Epic 2: Hunt Source Scanner - In progress (Hunt Table companion panel live; continuing data/edge-case hardening)
+- Epic 3: Weekly Hunt Cap Tracker - In progress
 - Epic 4: Prey Achievement Gap Highlighter - Planned
 - Epic 5: Reward Intelligence and Cost Context - In progress
+
+Current focus (remaining work):
+
+- Continue Hunt Table theme parity and preview polish checks across all panel states
+- Build dedicated weekly cap counters and reset-aware tier progress UI
+- Add achievement-gap highlighting inside hunt rows where mapping exists
+- Continue modular runtime split to keep core runtime maintainable
 
 ## Slash commands
 
