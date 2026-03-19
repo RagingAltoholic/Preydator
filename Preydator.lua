@@ -1364,6 +1364,9 @@ local function EmitV2QuestAccepted(questID, context)
     local scannerMeta = GetV2QuestMetadata(normalizedQuestID)
     local resolvedZoneName, resolvedZoneMapID = GetPreyZoneInfo(normalizedQuestID)
     local zoneMapID = (scannerMeta and scannerMeta.zoneMapID) or payload.zoneMapID or resolvedZoneMapID
+    local zoneName = (scannerMeta and scannerMeta.zoneName) or payload.zoneName or resolvedZoneName
+    -- Do NOT fall back to current player map: accepting a quest from a city/mailbox
+    -- would store that city as the prey zone and make the gate always return true there.
 
     local inPreyZone = nil
     if payload.inPreyZone ~= nil then
@@ -1379,7 +1382,7 @@ local function EmitV2QuestAccepted(questID, context)
         targetName = payload.targetName or state.preyTargetName,
         difficulty = (scannerMeta and scannerMeta.difficulty) or payload.difficulty or state.preyTargetDifficulty,
         zoneMapID = zoneMapID,
-        zoneName = (scannerMeta and scannerMeta.zoneName) or payload.zoneName or resolvedZoneName,
+        zoneName = zoneName,
         inPreyZone = inPreyZone,
         stage = tonumber(payload.stage) or tonumber(state.stage) or 1,
         sourceType = (scannerMeta and scannerMeta.sourceType) or payload.sourceType or "unknown",
@@ -1538,6 +1541,7 @@ Preydator.CanPlayStageAudioNow = function(questID, preyZoneMapID)
     local liveQuestID = tonumber(questID)
     local zoneMapID = tonumber(preyZoneMapID)
     local stateInPreyZone = state and state.inPreyZone == true
+    local hasMatchingTrackedQuest = stateInPreyZone and IsValidQuestID(liveQuestID) and tonumber(state.activeQuestID) == liveQuestID
 
     if not zoneMapID and IsValidQuestID(liveQuestID) then
         local _, resolvedMapID = GetPreyZoneInfo(liveQuestID)
@@ -1545,7 +1549,9 @@ Preydator.CanPlayStageAudioNow = function(questID, preyZoneMapID)
     end
 
     if not zoneMapID then
-        return false
+        -- Random prey quests can have no mapID from APIs/cache. If runtime already
+        -- confirmed in-zone from live widget data, allow stage audio progression.
+        return hasMatchingTrackedQuest
     end
 
     local zoneGate = Preydator and Preydator.GetModule and Preydator:GetModule("ZoneGateV2")
@@ -1563,7 +1569,7 @@ Preydator.CanPlayStageAudioNow = function(questID, preyZoneMapID)
 
     -- Fallback for subzone-map variance: if runtime already confirmed prey-zone presence,
     -- do not suppress valid stage progression audio.
-    if stateInPreyZone and IsValidQuestID(liveQuestID) and tonumber(state.activeQuestID) == liveQuestID then
+    if hasMatchingTrackedQuest then
         return true
     end
 
@@ -4421,27 +4427,6 @@ local function FindPreyWidgetProgressState(activeQuestID)
             return progressState, tooltipText, progressPercent
         end
     end
-
-    local runtime = Preydator and Preydator.GetModule and Preydator:GetModule("PreyRuntime")
-    local runtimeFn = runtime and runtime.FindPreyWidgetProgressState
-    if type(runtimeFn) == "function" then
-        local ok, handled, progressState, tooltipText, progressPercent = pcall(
-            runtimeFn,
-            runtime,
-            activeQuestID,
-            {
-                GetWidgetTypePreyHuntProgress = GetWidgetTypePreyHuntProgress,
-                GetShownStateShown = GetShownStateShown,
-                GetCandidateWidgetSetIDs = GetCandidateWidgetSetIDs,
-                ExtractProgressPercent = ExtractProgressPercent,
-                IsValidQuestID = IsValidQuestID,
-                ExtractWidgetQuestID = ExtractWidgetQuestID,
-            }
-        )
-        if ok and handled == true then
-            return progressState, tooltipText, progressPercent
-        end
-    end
     return nil
 end
 
@@ -4463,6 +4448,9 @@ local function ResetStateForNewQuest(questID)
         state.stageSoundPlayed = {}
         state.stage = 1
         state.preyZoneName, state.preyZoneMapID = GetPreyZoneInfo(questID)
+        -- Leave preyZoneMapID nil when APIs return nil; using the current player map
+        -- here would seed a city/hub as the prey zone on reload. Widget data is the
+        -- authoritative in-zone signal when the map ID is unavailable.
         state.inPreyZone = IsPlayerInPreyZone(state.preyZoneMapID)
         state.preyTooltipText = nil
         state.preyTargetName, state.preyTargetDifficulty = ExtractPreyTargetFromQuestTitle(questID)
@@ -4481,7 +4469,6 @@ local function UpdatePreyState()
     local now = GetTime and GetTime() or 0
 
     local inKillCarry = ((state and state.killStageUntil) or 0) > now
-    local recentlySawWidget = (now - (state.lastWidgetSeenAt or 0)) <= 8.0
     local likelyInPreyZone = false
     if hasActiveQuest then
         local preyZoneMapID = nil
@@ -4571,8 +4558,9 @@ local function UpdatePreyState()
     end
 
     ResetStateForNewQuest(effectiveQuestID)
-    -- If preyZoneMapID is still nil (e.g. C_TaskQuest returned nil at quest accept),
-    -- try again now -- HuntScanner questZoneCache may have been populated since.
+    -- If preyZoneMapID is still nil, try HuntScanner cache once more (it may have
+    -- been populated since quest accept). Do NOT fall back to player map position —
+    -- that causes the gate to match any city the player happens to be standing in.
     if not state.preyZoneMapID and state.activeQuestID then
         local _, resolvedMapID = GetPreyZoneInfo(state.activeQuestID)
         if resolvedMapID then
@@ -4657,6 +4645,18 @@ local function UpdatePreyState()
 
     local oldStage = state.stage
     local newStage = GetStageFromState(state.progressState)
+    if state.progressState == nil and type(state.progressPercent) == "number" then
+        local pct = math.max(0, math.min(100, state.progressPercent))
+        if pct >= GetStageFallbackPercent(4) then
+            newStage = 4
+        elseif pct >= GetStageFallbackPercent(3) then
+            newStage = 3
+        elseif pct >= GetStageFallbackPercent(2) then
+            newStage = 2
+        else
+            newStage = 1
+        end
+    end
     state.stage = newStage
 
     if IsValidQuestID(state.activeQuestID) and tonumber(state.v2LastAcceptedQuestID) ~= tonumber(state.activeQuestID) then
@@ -4729,13 +4729,17 @@ function Preydator:ShouldUseActivePolling()
     local inKillCarry = ((state and state.killStageUntil) or 0) > now
     local inEditPreview = IsEditModePreviewActive and IsEditModePreviewActive() == true
     local forceShowBar = state and state.forceShowBar == true
+    local inPreyZone = state and state.inPreyZone == true
+    local hasHotQuestContext = hasTrackedQuest and inPreyZone
 
-    -- Active polling is only needed for short-lived transition windows.
-    -- Zone/widget changes are primarily driven by WoW events.
+    -- Keep lightweight polling active while a tracked prey quest is in-zone so
+    -- stage transitions follow the native widget promptly even when widget events
+    -- are sparse or delayed on some clients.
     return needsQuestBootstrap
         or inKillCarry
         or inEditPreview
         or forceShowBar
+        or hasHotQuestContext
 end
 
 function Preydator:SetPollingActive(enabled)
@@ -5974,14 +5978,25 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2)
             or event == "ZONE_CHANGED_NEW_AREA"
         -- Widget events signal WoW UI redraws; rate-limited below to prevent UpdatePreyState thrash.
         local isWidgetEvent = event == "UPDATE_UI_WIDGET" or event == "UPDATE_ALL_UI_WIDGETS"
-            -- Rate-limit widget events before any quest lookup, zone-map resolution, or widget scan.
-            -- UPDATE_UI_WIDGET can fire for unrelated widgets many times per second while idle.
-            if isWidgetEvent and (now - (state.lastWidgetEventProbeAt or 0)) < 0.5 then
+        -- Ignore unrelated widget updates: UPDATE_UI_WIDGET fires for all widget types.
+        if event == "UPDATE_UI_WIDGET" then
+            local widgetID = tonumber(arg1)
+            if not widgetID
+                or not C_UIWidgetManager
+                or type(C_UIWidgetManager.GetPreyHuntProgressWidgetVisualizationInfo) ~= "function"
+                or C_UIWidgetManager.GetPreyHuntProgressWidgetVisualizationInfo(widgetID) == nil
+            then
                 return
             end
-            if isWidgetEvent then
-                state.lastWidgetEventProbeAt = now
-            end
+        end
+
+        -- Rate-limit widget events before any quest lookup, zone-map resolution, or widget scan.
+        if isWidgetEvent and (now - (state.lastWidgetEventProbeAt or 0)) < 0.5 then
+            return
+        end
+        if isWidgetEvent then
+            state.lastWidgetEventProbeAt = now
+        end
 
         local trackedQuestID = state and state.activeQuestID or nil
         local hasTrackedQuest = IsValidQuestID(trackedQuestID) and IsQuestStillActive(trackedQuestID)
@@ -5990,6 +6005,20 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2)
         local needsQuestBootstrap = hasLiveQuest and not hasTrackedQuest
         local inKillCarry = ((state and state.killStageUntil) or 0) > now
         local contextQuestID = hasLiveQuest and liveQuestID or (hasTrackedQuest and trackedQuestID or nil)
+
+        if isZoneEvent and IsValidQuestID(contextQuestID) then
+            local zoneMapID = nil
+            if state and state.activeQuestID == contextQuestID then
+                zoneMapID = state.preyZoneMapID
+            else
+                local _, resolvedMapID = GetPreyZoneInfo(contextQuestID)
+                zoneMapID = resolvedMapID
+            end
+            if zoneMapID then
+                state.inPreyZone = IsPlayerInPreyZone(zoneMapID) == true
+            end
+        end
+
         local inPreyZone = state and state.inPreyZone == true
 
         local hasHotQuestContext = IsValidQuestID(contextQuestID) and inPreyZone

@@ -7,9 +7,15 @@ end
 
 local C_QuestLog = _G.C_QuestLog
 local C_Map = _G.C_Map
+local C_TaskQuest = _G.C_TaskQuest
 local geterrorhandler = _G.geterrorhandler
 local GetTime = _G.GetTime
 local GetZoneText = _G.GetZoneText
+local table = _G.table
+local type = _G.type
+local tostring = _G.tostring
+local tonumber = _G.tonumber
+local string = _G.string
 
 local function SendToErrorHandler(reportText)
     if type(reportText) ~= "string" or reportText == "" then
@@ -83,11 +89,98 @@ local function BuildInspectReport()
         playerMapName = mapInfo and mapInfo.name or nil
     end
 
+    local function ResolveMapName(mapID)
+        if type(mapID) ~= "number" or not (C_Map and C_Map.GetMapInfo) then
+            return nil
+        end
+        local mapInfo = C_Map.GetMapInfo(mapID)
+        return mapInfo and mapInfo.name or nil
+    end
+
+    local runtime = Preydator.GetModule and Preydator:GetModule("PreyRuntime") or nil
+    local zoneGate = Preydator.GetModule and Preydator:GetModule("ZoneGateV2") or nil
+    local widgetBridge = Preydator.GetModule and Preydator:GetModule("PreyWidgetBridge") or nil
+    local scanner = Preydator.GetModule and Preydator:GetModule("HuntScanner") or nil
+    local activeStore = Preydator.GetModule and Preydator:GetModule("HuntDataStoreV2") or nil
+    local liveZoneName, liveZoneMapID = nil, nil
+    local apiZoneMapID = nil
+    local apiZoneName = nil
+    local scannerZoneMapID = nil
+    local scannerZoneName = nil
+    local activeHuntZoneMapID = nil
+    local activeHuntZoneName = nil
+    if hasActiveQuest and runtime and type(runtime.GetPreyZoneInfo) == "function" then
+        liveZoneName, liveZoneMapID = runtime:GetPreyZoneInfo(liveQuestID)
+    end
+    if hasActiveQuest and C_TaskQuest and type(C_TaskQuest.GetQuestZoneID) == "function" then
+        apiZoneMapID = C_TaskQuest.GetQuestZoneID(liveQuestID)
+        apiZoneName = ResolveMapName(apiZoneMapID)
+    end
+    if hasActiveQuest and scanner and type(scanner.GetQuestZoneMapID) == "function" then
+        scannerZoneMapID = scanner:GetQuestZoneMapID(liveQuestID)
+        scannerZoneName = ResolveMapName(scannerZoneMapID)
+    end
+    if hasActiveQuest and activeStore and type(activeStore.GetActiveHunt) == "function" then
+        local activeHunt = activeStore:GetActiveHunt()
+        if type(activeHunt) == "table" then
+            activeHuntZoneMapID = activeHunt.zoneMapID
+            activeHuntZoneName = activeHunt.zoneName or ResolveMapName(activeHuntZoneMapID)
+        end
+    end
+    local trackedZoneMapID = state and state.preyZoneMapID or nil
+    local trackedZoneName = state and state.preyZoneName or nil
+    local bridgeState = nil
+    local bridgeTooltip = nil
+    local bridgePercent = nil
+    local bridgeError = nil
+    if hasActiveQuest and widgetBridge and type(widgetBridge.GetWidgetState) == "function" then
+        local okBridge, s, t, p = pcall(widgetBridge.GetWidgetState, widgetBridge, liveQuestID)
+        if okBridge then
+            bridgeState = s
+            bridgeTooltip = t
+            bridgePercent = p
+        else
+            bridgeError = s
+        end
+    end
+    local gateByTrackedMap = nil
+    local gateByLiveMap = nil
+    if zoneGate and type(zoneGate.IsInPreyZone) == "function" then
+        if type(trackedZoneMapID) == "number" then
+            gateByTrackedMap = zoneGate:IsInPreyZone(trackedZoneMapID)
+        end
+        if type(liveZoneMapID) == "number" then
+            gateByLiveMap = zoneGate:IsInPreyZone(liveZoneMapID)
+        end
+    end
+
     add("Preydator Inspect (module)")
     add("- time=" .. string.format("%.3f", now) .. " | zone=" .. tostring(GetZoneText and GetZoneText() or "?") .. " | playerMapID=" .. tostring(playerMapID) .. " | playerMap=" .. tostring(playerMapName))
     add("- quest live=" .. tostring(liveQuestID) .. " | hasActive=" .. tostring(hasActiveQuest) .. " | tracked=" .. tostring(state.activeQuestID))
     add("- state stage=" .. tostring(state.stage) .. " | progressState=" .. tostring(state.progressState) .. " | progressPercent=" .. tostring(state.progressPercent))
     add("- inPreyZone=" .. tostring(state.inPreyZone) .. " | disableDefaultPreyIcon=" .. tostring(settings and settings.disableDefaultPreyIcon == true))
+    add("- prey zone trackedMapID=" .. tostring(trackedZoneMapID)
+        .. " | trackedMap=" .. tostring(trackedZoneName)
+        .. " | liveMapID=" .. tostring(liveZoneMapID)
+        .. " | liveMap=" .. tostring(liveZoneName)
+        .. " | gateTracked=" .. tostring(gateByTrackedMap)
+        .. " | gateLive=" .. tostring(gateByLiveMap))
+    add("- prey zone sources"
+        .. " | apiMapID=" .. tostring(apiZoneMapID)
+        .. " | apiMap=" .. tostring(apiZoneName)
+        .. " | scannerMapID=" .. tostring(scannerZoneMapID)
+        .. " | scannerMap=" .. tostring(scannerZoneName)
+        .. " | runtimeMapID=" .. tostring(liveZoneMapID)
+        .. " | runtimeMap=" .. tostring(liveZoneName)
+        .. " | trackedMapID=" .. tostring(trackedZoneMapID)
+        .. " | trackedMap=" .. tostring(trackedZoneName)
+        .. " | v2MapID=" .. tostring(activeHuntZoneMapID)
+        .. " | v2Map=" .. tostring(activeHuntZoneName))
+    add("- prey widget bridge"
+        .. " | state=" .. tostring(bridgeState)
+        .. " | pct=" .. tostring(bridgePercent)
+        .. " | tooltip='" .. tostring(bridgeTooltip or "") .. "'"
+        .. " | err=" .. tostring(bridgeError))
     local lifecycleV2 = Preydator.GetModule and Preydator:GetModule("QuestLifecycleV2") or nil
     local runtimeV2 = Preydator.GetModule and Preydator:GetModule("RuntimeCoordinatorV2") or nil
     local storeV2 = Preydator.GetModule and Preydator:GetModule("HuntDataStoreV2") or nil
@@ -196,7 +289,6 @@ local function BuildInspectReport()
         local prefix = labelFrames.prefix
         local suffix = labelFrames.suffix
         local percent = labelFrames.percent
-        local centerDot = labelFrames.centerDot
 
         add("- prefix"
             .. " | shown=" .. tostring(prefix and prefix.IsShown and prefix:IsShown() or false)
@@ -210,10 +302,6 @@ local function BuildInspectReport()
             .. " | shown=" .. tostring(percent and percent.IsShown and percent:IsShown() or false)
             .. " | text='" .. tostring(percent and percent.GetText and percent:GetText() or "") .. "'"
             .. " | point=" .. FormatPoint(percent))
-        add("- centerDot"
-            .. " | enabledSetting=" .. tostring(settings and settings.showAlignmentDot == true)
-            .. " | shown=" .. tostring(centerDot and centerDot.IsShown and centerDot:IsShown() or false)
-            .. " | point=" .. FormatPoint(centerDot))
     end
 
     local reportText = table.concat(lines, "\n")

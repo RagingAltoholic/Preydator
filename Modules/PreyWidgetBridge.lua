@@ -34,6 +34,8 @@ local tonumber = _G.tonumber
 local tostring = _G.tostring
 local pairs = _G.pairs
 local ipairs = _G.ipairs
+local string = _G.string
+local table = _G.table
 
 --------------------------------------------------------------------------------
 -- Module State
@@ -70,6 +72,106 @@ local function LazyInitializeConstants()
     end
 end
 
+local function ClampPercent(value)
+    local n = tonumber(value)
+    if not n then
+        return nil
+    end
+    if n < 0 then
+        n = 0
+    end
+    if n > 100 then
+        n = 100
+    end
+    return n
+end
+
+local function ExtractProgressPercentFromWidgetInfo(info, tooltip)
+    if type(info) ~= "table" then
+        return nil
+    end
+
+    local direct = ClampPercent(info.progressPercent)
+    if direct ~= nil then
+        return direct
+    end
+
+    local text = type(tooltip) == "string" and tooltip or (type(info.tooltip) == "string" and info.tooltip or nil)
+    if not text then
+        return nil
+    end
+
+    local curText, maxText = text:match("(%d+)%s*/%s*(%d+)")
+    local curValue = tonumber(curText)
+    local maxValue = tonumber(maxText)
+    if curValue and maxValue and maxValue > 0 then
+        return ClampPercent((curValue / maxValue) * 100)
+    end
+
+    local pctText = text:match("(%d+)%s*%%")
+    return ClampPercent(pctText)
+end
+
+local function IsWidgetShown(info)
+    if type(info) ~= "table" then
+        return false
+    end
+
+    -- Some clients omit shownState on prey widget payloads; treat missing as visible.
+    if info.shownState == nil then
+        return true
+    end
+
+    return tonumber(info.shownState) == tonumber(shownStateConstant)
+end
+
+local function GetDiscoveredWidgetSetIDs()
+    local discovered = {}
+    local seen = {}
+
+    if not (C_UIWidgetManager and type(C_UIWidgetManager) == "table") then
+        return discovered
+    end
+
+    local function addSetID(setID)
+        if type(setID) == "number" and setID > 0 and not seen[setID] then
+            seen[setID] = true
+            discovered[#discovered + 1] = setID
+        end
+    end
+
+    -- Keep existing known sets first.
+    if type(C_UIWidgetManager.GetTopCenterWidgetSetID) == "function" then
+        addSetID(C_UIWidgetManager.GetTopCenterWidgetSetID())
+    end
+    if type(C_UIWidgetManager.GetObjectiveTrackerWidgetSetID) == "function" then
+        addSetID(C_UIWidgetManager.GetObjectiveTrackerWidgetSetID())
+    end
+    if type(C_UIWidgetManager.GetBelowMinimapWidgetSetID) == "function" then
+        addSetID(C_UIWidgetManager.GetBelowMinimapWidgetSetID())
+    end
+    if type(C_UIWidgetManager.GetPowerBarWidgetSetID) == "function" then
+        addSetID(C_UIWidgetManager.GetPowerBarWidgetSetID())
+    end
+
+    -- Discover all other available widget set IDs (e.g. set 283 on some clients).
+    for fnName, fnRef in pairs(C_UIWidgetManager) do
+        if type(fnName) == "string"
+            and type(fnRef) == "function"
+            and string.find(fnName, "Get", 1, true) == 1
+            and string.find(fnName, "WidgetSetID", 1, true)
+        then
+            local ok, setID = pcall(fnRef)
+            if ok then
+                addSetID(setID)
+            end
+        end
+    end
+
+    table.sort(discovered)
+    return discovered
+end
+
 local function IsWardbandEnabled()
     local customization = Preydator.GetModule and Preydator:GetModule("CustomizationStateV2")
     if not customization or type(customization.IsModuleEnabled) ~= "function" then
@@ -86,10 +188,15 @@ function PreyWidgetBridgeModule:IsWidgetAvailable()
     if not C_UIWidgetManager then
         return false
     end
-    if type(C_UIWidgetManager.GetWidgetInfoByConditionID) ~= "function" then
-        return false
+    if type(C_UIWidgetManager.GetWidgetInfoByConditionID) == "function" then
+        return true
     end
-    return true
+    if type(C_UIWidgetManager.GetAllWidgetsBySetID) == "function"
+        and type(C_UIWidgetManager.GetPreyHuntProgressWidgetVisualizationInfo) == "function"
+    then
+        return true
+    end
+    return false
 end
 
 function PreyWidgetBridgeModule:GetWidgetTypePreyHuntProgress()
@@ -121,26 +228,71 @@ function PreyWidgetBridgeModule:GetWidgetState(questID)
     LazyInitializeConstants()
 
     local widgetType = widgetTypeConstant
-    local ok, widgetInfo = pcall(C_UIWidgetManager.GetWidgetInfoByConditionID, widgetType, questID)
-    if not ok or type(widgetInfo) ~= "table" then
+    if type(C_UIWidgetManager.GetWidgetInfoByConditionID) == "function" then
+        local ok, widgetInfo = pcall(C_UIWidgetManager.GetWidgetInfoByConditionID, widgetType, questID)
+        if ok and type(widgetInfo) == "table" and IsWidgetShown(widgetInfo) then
+            local progressState = tonumber(widgetInfo.progressState)
+            local tooltip = tostring(widgetInfo.tooltip or "")
+            local progressPercent = ExtractProgressPercentFromWidgetInfo(widgetInfo, tooltip)
+            if progressState == nil and progressPercent ~= nil then
+                -- Keep hasWidgetData true even when clients omit progressState.
+                progressState = 0
+            end
+            if progressState ~= nil or progressPercent ~= nil or tooltip ~= "" then
+                return progressState, tooltip, progressPercent or 0
+            end
+        end
+    end
+
+    -- Fallback path: some clients fail condition-based lookup while prey icon still updates.
+    -- Scan known widget set IDs and match by questID when available.
+    if not (type(C_UIWidgetManager.GetAllWidgetsBySetID) == "function"
+        and type(C_UIWidgetManager.GetPreyHuntProgressWidgetVisualizationInfo) == "function")
+    then
         return nil, nil, nil
     end
 
-    -- Widget may be hidden; skip if not shown
-    if widgetInfo.shownState ~= shownStateConstant then
-        return nil, nil, nil
+    local candidateSetIDs = GetDiscoveredWidgetSetIDs()
+
+    local fallbackState, fallbackTooltip, fallbackPercent = nil, nil, nil
+    for _, setID in ipairs(candidateSetIDs) do
+        if type(setID) == "number" then
+            local widgets = C_UIWidgetManager.GetAllWidgetsBySetID(setID)
+            if type(widgets) == "table" then
+                for _, widget in ipairs(widgets) do
+                    if type(widget) == "table" and type(widget.widgetID) == "number" then
+                        local info = C_UIWidgetManager.GetPreyHuntProgressWidgetVisualizationInfo(widget.widgetID)
+                        if type(info) == "table" and IsWidgetShown(info) then
+                            local stateValue = tonumber(info.progressState)
+                            local tooltipText = tostring(info.tooltip or "")
+                            local percentValue = ExtractProgressPercentFromWidgetInfo(info, tooltipText)
+                            local widgetQuestID = self:ExtractWidgetQuestID(info)
+
+                            if stateValue == nil and percentValue ~= nil then
+                                stateValue = 0
+                            end
+
+                            if (stateValue ~= nil or percentValue ~= nil or tooltipText ~= "") and widgetQuestID and widgetQuestID == questID then
+                                return stateValue, tooltipText, percentValue or 0
+                            end
+
+                            if (stateValue ~= nil or percentValue ~= nil or tooltipText ~= "") and widgetQuestID == nil and fallbackState == nil then
+                                fallbackState = stateValue
+                                fallbackTooltip = tooltipText
+                                fallbackPercent = percentValue
+                            end
+                        end
+                    end
+                end
+            end
+        end
     end
 
-    -- Extract fields with safe defaults
-    local progressState = tonumber(widgetInfo.progressState)
-    local progressPercent = tonumber(widgetInfo.progressPercent) or 0
-    local tooltip = tostring(widgetInfo.tooltip or "")
+    if fallbackState ~= nil then
+        return fallbackState, fallbackTooltip, fallbackPercent or 0
+    end
 
-    -- Clamp percent to 0-100
-    if progressPercent < 0 then progressPercent = 0 end
-    if progressPercent > 100 then progressPercent = 100 end
-
-    return progressState, tooltip, progressPercent
+    return nil, nil, nil
 end
 
 -------------------------------------------------------------------------------

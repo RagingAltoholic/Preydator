@@ -70,29 +70,42 @@ function PreyRuntimeModule:GetPreyZoneInfo(questID)
         return nil, nil
     end
 
-    -- Query HuntScanner zone cache first — more reliable than C_TaskQuest for prey quests.
-    local scanner = Preydator and Preydator.GetModule and Preydator:GetModule("HuntScanner")
-    if scanner and type(scanner.GetQuestZoneMapID) == "function" then
-        local mapID = scanner:GetQuestZoneMapID(questID)
-        if mapID and C_Map and C_Map.GetMapInfo then
-            local mapInfo = C_Map.GetMapInfo(mapID)
-            if mapInfo then
-                return mapInfo.name, mapID
+    if not (C_TaskQuest and C_TaskQuest.GetQuestZoneID and C_Map and C_Map.GetMapInfo) then
+        -- Fall back to HuntScanner cache when C_TaskQuest APIs are unavailable.
+        local scanner = Preydator and Preydator.GetModule and Preydator:GetModule("HuntScanner")
+        if scanner and type(scanner.GetQuestZoneMapID) == "function" then
+            local cachedMapID = scanner:GetQuestZoneMapID(questID)
+            if cachedMapID then
+                local cachedMapInfo = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(cachedMapID)
+                if cachedMapInfo then
+                    return cachedMapInfo.name, cachedMapID
+                end
             end
         end
-    end
-
-    if not (C_TaskQuest and C_TaskQuest.GetQuestZoneID and C_Map and C_Map.GetMapInfo) then
         return nil, nil
     end
 
     local mapID = C_TaskQuest.GetQuestZoneID(questID)
-    if not mapID then
-        return nil, nil
+    if mapID then
+        local mapInfo = C_Map.GetMapInfo(mapID)
+        if mapInfo then
+            return mapInfo.name, mapID
+        end
     end
 
-    local mapInfo = C_Map.GetMapInfo(mapID)
-    return (mapInfo and mapInfo.name or nil), mapID
+    -- C_TaskQuest sometimes returns nil transiently; use scanner cache as a fallback.
+    local scanner = Preydator and Preydator.GetModule and Preydator:GetModule("HuntScanner")
+    if scanner and type(scanner.GetQuestZoneMapID) == "function" then
+        local cachedMapID = scanner:GetQuestZoneMapID(questID)
+        if cachedMapID then
+            local cachedMapInfo = C_Map.GetMapInfo(cachedMapID)
+            if cachedMapInfo then
+                return cachedMapInfo.name, cachedMapID
+            end
+        end
+    end
+
+    return nil, nil
 end
 
 function PreyRuntimeModule:IsPlayerInPreyZone(preyMapID)
@@ -195,74 +208,3 @@ function PreyRuntimeModule:EvaluateQuestLifecycle(state, questID, hasActiveQuest
     return questCompleted, questStillActive, shouldClear, completedTransition
 end
 
-function PreyRuntimeModule:FindPreyWidgetProgressState(activeQuestID, context)
-    local bridge = Preydator and Preydator.GetModule and Preydator:GetModule("PreyWidgetBridge")
-    local bridgeFn = bridge and bridge.GetWidgetState
-    if type(bridgeFn) == "function" then
-        local ok, progressState, tooltipText, progressPercent = pcall(bridgeFn, bridge, activeQuestID)
-        if ok then
-            return true, progressState, tooltipText, progressPercent
-        end
-    end
-
-    if not (C_UIWidgetManager and C_UIWidgetManager.GetAllWidgetsBySetID and C_UIWidgetManager.GetPreyHuntProgressWidgetVisualizationInfo) then
-        return false, nil, nil, nil
-    end
-
-    if type(context) ~= "table" then
-        return false, nil, nil, nil
-    end
-
-    local getWidgetType = context.GetWidgetTypePreyHuntProgress
-    local getShownState = context.GetShownStateShown
-    local getCandidateSetIDs = context.GetCandidateWidgetSetIDs
-    local extractPercent = context.ExtractProgressPercent
-    local isValidQuestID = context.IsValidQuestID
-    local extractWidgetQuestID = context.ExtractWidgetQuestID
-
-    if type(getWidgetType) ~= "function"
-        or type(getShownState) ~= "function"
-        or type(getCandidateSetIDs) ~= "function"
-        or type(extractPercent) ~= "function"
-        or type(isValidQuestID) ~= "function"
-        or type(extractWidgetQuestID) ~= "function"
-    then
-        return false, nil, nil, nil
-    end
-
-    local preyWidgetType = getWidgetType()
-    local shownStateShown = getShownState()
-    local fallbackState, fallbackTooltip, fallbackPct = nil, nil, nil
-
-    for _, setID in ipairs(getCandidateSetIDs() or {}) do
-        local widgets = C_UIWidgetManager.GetAllWidgetsBySetID(setID)
-        if widgets then
-            for _, widget in ipairs(widgets) do
-                if widget and widget.widgetType == preyWidgetType then
-                    local info = C_UIWidgetManager.GetPreyHuntProgressWidgetVisualizationInfo(widget.widgetID)
-                    if info and info.shownState == shownStateShown then
-                        local pct = extractPercent(info, info.tooltip)
-                        if isValidQuestID(activeQuestID) then
-                            local widgetQuestID = extractWidgetQuestID(info)
-                            if widgetQuestID == activeQuestID then
-                                return true, info.progressState, info.tooltip, pct
-                            end
-
-                            if widgetQuestID == nil and fallbackState == nil then
-                                fallbackState, fallbackTooltip, fallbackPct = info.progressState, info.tooltip, pct
-                            end
-                        else
-                            return true, info.progressState, info.tooltip, pct
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    if isValidQuestID(activeQuestID) then
-        return true, fallbackState, fallbackTooltip, fallbackPct
-    end
-
-    return true, nil, nil, nil
-end

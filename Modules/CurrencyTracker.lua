@@ -256,6 +256,8 @@ local FONT_PATHS = {
 local CurrencyTrackerModule = {}
 Preydator:RegisterModule("CurrencyTracker", CurrencyTrackerModule)
 
+local nextLightRefreshAt = 0
+
 -- Internal state (not persisted to SavedVariables — that happens via OnAddonLoaded/OnEvent)
 local db                -- reference to PreydatorDB.currency sub-table
 local sessionStart      = {}   -- [currencyID] = quantity at login/reload
@@ -2906,8 +2908,15 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         RecordPreyTurnIn(questID)
     end
 
-    if event == "CHAT_MSG_CURRENCY" or event == "CHAT_MSG_LOOT" or event == "QUEST_TURNED_IN" or event == "BAG_UPDATE_DELAYED" or event == "PLAYER_ENTERING_WORLD" then
+    if event == "CHAT_MSG_CURRENCY" or event == "CHAT_MSG_LOOT" or event == "QUEST_TURNED_IN" or event == "BAG_UPDATE_DELAYED" then
         CurrencyTrackerModule:QueueRefreshSweep(event)
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        -- Gate the full sweep so it doesn't double-fire immediately after PLAYER_LOGIN.
+        local now = GetTime and (tonumber(GetTime()) or 0) or 0
+        if now >= (nextLightRefreshAt or 0) then
+            nextLightRefreshAt = now + 2.0
+            CurrencyTrackerModule:QueueRefreshSweep(event)
+        end
     end
 end)
 
@@ -2951,6 +2960,12 @@ function CurrencyTrackerModule:OnEvent(event, ...)
         UpdateWarbandWindowPosition()
         UpdateMinimapButtonPosition()
         self:RefreshCurrencyPage()
+        -- Arm the gate so the PLAYER_ENTERING_WORLD that fires right after login
+        -- doesn't immediately trigger a redundant full QueueRefreshSweep.
+        do
+            local now = GetTime and (tonumber(GetTime()) or 0) or 0
+            nextLightRefreshAt = now + 4.0
+        end
 
         if C_Timer and type(C_Timer.After) == "function" then
             C_Timer.After(0.5, function()
@@ -2974,14 +2989,13 @@ function CurrencyTrackerModule:OnEvent(event, ...)
         return
     end
 
-    if event == "QUEST_LOG_UPDATE"
-        or event == "UPDATE_ALL_UI_WIDGETS"
-        or event == "UPDATE_UI_WIDGET"
-        or event == "ZONE_CHANGED"
-        or event == "ZONE_CHANGED_INDOORS"
-        or event == "ZONE_CHANGED_NEW_AREA"
-        or event == "PLAYER_ENTERING_WORLD"
-    then
+    if event == "QUEST_LOG_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
+        local now = GetTime and (tonumber(GetTime()) or 0) or 0
+        if now < (nextLightRefreshAt or 0) then
+            return
+        end
+        nextLightRefreshAt = now + 2.0
+
         CheckAndProcessWeeklyReset()
         SnapshotCurrentPreyCharacter()
         -- Always refresh the warband window so availability counts update immediately
