@@ -28,6 +28,10 @@ Modules\Diagnostics.lua
 Modules\PreyRuntime.lua
 Modules\PreyAudio.lua
 Modules\MapAndWaypoint.lua
+Modules\WeeklyCaps.lua
+Modules\PreyData.lua
+Modules\PreyBarUI.lua
+Modules\PreyWidgetBridge.lua
 Modules\CurrencyTracker.lua
 Modules\HuntScanner.lua
 Modules\V2\HuntDataStoreV2.lua

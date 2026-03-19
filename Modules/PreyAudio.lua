@@ -7,6 +7,7 @@ if type(Preydator) ~= "table" or type(Preydator.RegisterModule) ~= "function" th
 end
 
 local PlaySoundFile = _G.PlaySoundFile
+local StopSound = _G.StopSound
 local GetTime = _G.GetTime
 local tonumber = _G.tonumber
 local tostring = _G.tostring
@@ -15,6 +16,8 @@ local ipairs = _G.ipairs
 
 local PreyAudioModule = {}
 Preydator:RegisterModule("PreyAudio", PreyAudioModule)
+
+local lastTestSoundHandle = nil
 
 local function GetApi()
     return type(Preydator.API) == "table" and Preydator.API or nil
@@ -87,23 +90,26 @@ end
 
 function PreyAudioModule:TryPlaySound(path, ignoreSoundToggle)
     if type(path) ~= "string" or path == "" then
+        AddDebugLog("Audio", "TryPlaySound suppressed: invalid path", false)
         return false
     end
 
     local settings = GetSettings()
     if not ignoreSoundToggle and settings and settings.soundsEnabled == false then
+        AddDebugLog("Audio", "TryPlaySound suppressed: sounds disabled", false)
         return false
     end
 
     local channel = (settings and settings.soundChannel) or "SFX"
-    local ok = PlaySoundFile(path, channel) and true or false
-    if not ok then
+    local pcallOk, willPlay = pcall(PlaySoundFile, path, channel)
+    if not (pcallOk and willPlay) then
+        AddDebugLog("Audio", "TryPlaySound failed: path=" .. tostring(path) .. " | channel=" .. tostring(channel), false)
         return false
     end
 
     local extraPlays = tonumber(settings and settings.soundEnhance) or 0
     for _ = 1, extraPlays do
-        PlaySoundFile(path, channel)
+        pcall(PlaySoundFile, path, channel)
     end
 
     return true
@@ -112,27 +118,34 @@ end
 function PreyAudioModule:TryPlayStageSound(stage, ignoreSoundToggle)
     local state = GetState()
     if type(state) ~= "table" then
+        AddDebugLog("Audio", "TryPlayStageSound suppressed: no state", false)
         return false
     end
 
     stage = tonumber(stage)
     if not stage then
+        AddDebugLog("Audio", "TryPlayStageSound suppressed: invalid stage", false)
         return false
     end
 
     state.stageSoundPlayed = type(state.stageSoundPlayed) == "table" and state.stageSoundPlayed or {}
     if state.stageSoundPlayed[stage] then
+        AddDebugLog("Audio", "TryPlayStageSound deduped: stage " .. tostring(stage) .. " already played", false)
         return false
     end
 
     local path = self:ResolveStageSoundPath(stage)
     if not path then
+        AddDebugLog("Audio", "TryPlayStageSound suppressed: no path for stage " .. tostring(stage), false)
         return false
     end
 
     local didPlay = self:TryPlaySound(path, ignoreSoundToggle)
     if didPlay then
         state.stageSoundPlayed[stage] = true
+        AddDebugLog("Audio", "TryPlayStageSound success: stage " .. tostring(stage) .. " | path=" .. tostring(path), false)
+    else
+        AddDebugLog("Audio", "TryPlayStageSound failed: stage " .. tostring(stage) .. " | path=" .. tostring(path), false)
     end
     return didPlay == true
 end
@@ -179,10 +192,39 @@ function PreyAudioModule:TriggerAmbushAlert(message, source)
         local ambushPath = ResolveAmbushAlertSoundPath()
         if ambushPath then
             local channel = (settings and settings.soundChannel) or "SFX"
-            PlaySoundFile(ambushPath, channel)
+            pcall(PlaySoundFile, ambushPath, channel)
         end
     end
 
     AddDebugLog("Ambush", "Detected from " .. tostring(source) .. ": " .. tostring(message), true)
     UpdateBarDisplay()
+end
+
+function PreyAudioModule:ResolveAmbushSoundPath()
+    local settings = GetSettings()
+    local path = settings and settings.ambushSoundPath
+    if type(path) == "string" and path ~= "" then
+        return path
+    end
+    local c = GetConstants()
+    return c.KILL_SOUND_PATH
+end
+
+function PreyAudioModule:PlayTestSound(path)
+    if type(path) ~= "string" or path == "" then
+        return false
+    end
+    local settings = GetSettings()
+    local channel = (settings and settings.soundChannel) or "SFX"
+    -- Stop previous test sound to prevent overlap-induced false failures.
+    if lastTestSoundHandle ~= nil then
+        pcall(StopSound, lastTestSoundHandle)
+        lastTestSoundHandle = nil
+    end
+    local ok, willPlay, handle = pcall(PlaySoundFile, path, channel)
+    if ok and willPlay then
+        lastTestSoundHandle = type(handle) == "number" and handle or nil
+        return true
+    end
+    return false
 end

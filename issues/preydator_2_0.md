@@ -26,7 +26,7 @@ This document tracks the sequence, checklists, risks, and completion criteria.
 2. Move code in cohesive slices, avoid large rewrites.
 3. Keep SavedVariables shape stable unless explicitly versioned.
 4. Prefer narrow API hooks over broad frame-tree suppression.
-5. Keep settings and customization parity through each phase.
+5. Keep settings and customization parity through each slice.
 
 ## Scope boundaries for 2.0
 
@@ -104,9 +104,9 @@ Optimization is complete only when all are true:
 
 ---
 
-## Phase plan
+## Slice plan (legacy phase mapping)
 
-## Phase 0 - Baseline and safety rails
+## Slice 0 - Baseline and safety rails (legacy: Phase 0)
 
 Status: Completed
 
@@ -120,7 +120,7 @@ Exit criteria:
 - [x] Baseline behavior list completed.
 - [x] Smoke test checklist written and validated once.
 
-### Phase 0 baseline behavior (frozen)
+### Slice 0 baseline behavior (frozen)
 
 1. Runtime and bar behavior
 - Active prey quest detection drives stage/progress bar updates.
@@ -141,7 +141,7 @@ Exit criteria:
 - Existing slash commands remain available with same user-facing text and side effects.
 - Diagnostics commands are now module-owned but behavior-parity is required.
 
-### Phase 0 risk focus (frozen)
+### Slice 0 risk focus (frozen)
 
 1. Default prey widget suppression path safety.
 2. Quest-to-map fallback behavior in stage 4/open-map actions.
@@ -149,7 +149,7 @@ Exit criteria:
 4. Module load order and hook execution order.
 5. SavedVariables schema drift.
 
-### Phase 0 smoke test script (baseline)
+### Slice 0 smoke test script (baseline)
 
 1. Login and load
 - Verify addon loads without UI or Lua errors.
@@ -175,20 +175,34 @@ Exit criteria:
 - Verify `/pd mem` output path.
 - Verify `/pd inspect` behavior via module handling.
 
-### SavedVariables migration decision (Phase 0)
+### SavedVariables migration decision (Slice 0)
 
 Decision:
-No schema migration in Phase 0. Keep existing SavedVariables structure stable during modular retrofit.
+No schema migration in Slice 0. Keep existing SavedVariables structure stable during modular retrofit.
 
 Rationale:
 Architecture stabilization first, behavior and data compatibility preserved.
 
-## Phase 1 - Modular retrofit first (no intended behavior changes)
+## Slice 1 - Modular retrofit first (no intended behavior changes) (legacy: Phase 1)
 
 Status: In progress
 
 Objective:
 Split monolithic responsibilities into stable modules while preserving behavior.
+
+### Slice 1a - Settings V2 retrofit (completed)
+
+Status: Completed
+
+Completed in this pass:
+- Profiles tab now uses a standard profile-management flow (active profile, create, copy-from, delete-unused, reset current) with bounded two-column layout.
+- Modules tab now includes per-module one-line descriptions, a coming-soon disabled Achievement module, and reload gating tied to actual module-setting changes.
+- Default Settings tab was reorganized into a bounded two-column layout with grouped controls and consistent spacing.
+- Settings layout boundary rules are now enforced across these pages (no third-column spill/overflow behavior).
+
+Notes:
+- Achievement module remains intentionally disabled until implementation lands.
+- Module toggle changes now set the correct settings path so reload activation works.
 
 Proposed module boundaries:
 - PreyRuntime: active quest/state evaluation and state transitions.
@@ -203,14 +217,33 @@ Checklist:
 - [ ] Extract PreyBarUI responsibilities.
 - [x] Extract MapAndWaypoint responsibilities.
 - [x] Extract Diagnostics helpers.
-- [ ] Keep public API and settings calls compatible.
+- [x] Keep public API and settings calls compatible.
 - [ ] Update toc load order for all new modules.
 
 Exit criteria:
 - [ ] Feature parity maintained after extraction.
 - [ ] No regressions in existing customization behavior.
 
-## Phase 2 - Safer widget integration refactor
+## Next steps after Settings V2 completion
+
+1. Finish Slice 1 extraction work.
+- Extract remaining PreyRuntime responsibilities into a dedicated module with behavior parity.
+- Extract remaining PreyBarUI/render responsibilities into a dedicated module with behavior parity.
+- Keep hooks/load order explicit in toc and preserve existing module API contracts.
+
+2. Execute a focused parity test pass.
+- Run smoke checks for login, prey lifecycle, scanner/currency panels, module toggles, and profile actions.
+- Verify no SavedVariables drift after profile/module/defaults updates.
+
+3. Start Slice 2 (safe widget integration).
+- Implement narrow prey-widget discovery as primary path.
+- Keep broad suppression only as guarded fallback with diagnostics path tagging.
+
+4. Start Slice 3 groundwork (Achievement Bridge).
+- Build watchlist/mapping scaffolding and API surface only.
+- Keep UI flagging deferred until bridge data is stable.
+
+## Slice 2 - Safer widget integration refactor (legacy: Phase 2)
 
 Status: Not started
 
@@ -227,7 +260,7 @@ Exit criteria:
 - [ ] Default path avoids broad frame-tree suppression.
 - [ ] Fallback only used when targeted lookup fails.
 
-## Phase 3 - Achievement Bridge foundation
+## Slice 3 - Achievement Bridge foundation (legacy: Phase 3)
 
 Status: Not started
 
@@ -315,13 +348,13 @@ Use this section as the source of truth for what is done in this cycle.
 - Added module load entry in toc and exposed required constants/API methods to keep module boundaries explicit.
 
 ### Current sprint focus
-- [x] Phase 0 baseline and smoke checklist
-- [x] Phase 1 modular extraction prep
-- [x] Phase 1 extraction slice: Diagnostics
-- [x] Phase 1 extraction slice: MapAndWaypoint
-- [ ] Phase 1 extraction slice: PreyRuntime (state helpers)
+- [x] Slice 0 baseline and smoke checklist
+- [x] Slice 1 modular extraction prep
+- [x] Slice 1 extraction: Diagnostics
+- [x] Slice 1 extraction: MapAndWaypoint
+- [ ] Slice 1 extraction: PreyRuntime (state helpers)
 
-### Phase 1 readiness checkpoint (current)
+### Slice 1 readiness checkpoint (current)
 
 Checkpoint status: Ready for incremental in-game test pass.
 
@@ -346,7 +379,7 @@ Targeted verification for this checkpoint:
 
 ### Done log
 - [x] Added 2.0 cleaner implementation playbook and ethical guardrails.
-- [x] Completed Phase 0 baseline behavior, risk focus, and smoke script.
+- [x] Completed Slice 0 baseline behavior, risk focus, and smoke script.
 - [x] Started modular retrofit with diagnostics slash command extraction to module-owned handlers.
 - [x] Fixed hunt table first-open scanner timing so interaction opens populate without quest pre-click.
 - [x] Extracted map/waypoint open and resolution path to MapAndWaypoint module and delegated from core.
@@ -1011,10 +1044,11 @@ Recommended order:
 3. Request C (hunt table font customization) third, coordinated with broader theming work.
 
 ## Random thoughts to Add
-1. Ability to hide characters under level 78 from the Prey Warband tracker so it stays clean with only those characters that can use the system and not all the leveling characters. Might add a system to include exclude characters in a different tab or area, may need to rethink how we are segregating the settings via tabs. DEFAULT OFF, Not tracking under level 78.
-2. Add an area where all the cureencies can be added to the warband tracker for the expansion, segregated from seasonal and permanet curencies for the season currencies.md for a full list, dureation column.
-3. Update the /pd inspect Bugsack to pd inspect bs dfor ease of typing
-4. Allow players to customize their themes so setting up a tab that has all the colors pbroken up by Primary secondary, rows for the bars and the fonts. Customize font selection. Maybe add a Font folder so people can add their own fonts like how we do sounds, same with Textures for the fill or even the Theme Rows if they want to add textures there.
-5. Since we can now get the zone from the quests thanks to Hunt Tracker let's add an option that the out of zone message is instead travel to zone X
-6. Ability to hide the Bar but keep the sounds.
-7. There should be a native to WoW code that tells us that the prey system was been reset or part of the weekly reset so that we can always have the number of Prey available correct each week without needing to toon hop.
+1. Ability to hide characters under level 78 from the Prey Warband tracker so it stays clean with only those characters that can use the system and not all the leveling characters. Might add a system to include exclude characters in a different tab or area, may need to rethink how we are segregating the settings via tabs. DEFAULT OFF, Not tracking under level 78. - DONE
+2. Add an area where all the cureencies can be added to the warband tracker for the expansion, segregated from seasonal and permanet curencies for the season currencies.md for a full list, dureation column. - DONE
+3. Update the /pd inspect Bugsack to pd inspect bs dfor ease of typing - DONE
+4. Allow players to customize their themes so setting up a tab that has all the colors pbroken up by Primary secondary, rows for the bars and the fonts. Customize font selection. Maybe add a Font folder so people can add their own fonts like how we do sounds, same with Textures for the fill or even the Theme Rows if they want to add textures there. - DONE
+5. Since we can now get the zone from the quests thanks to Hunt Tracker let's add an option that the out of zone message is instead travel to zone X - DONE
+6. Ability to hide the Bar but keep the sounds. - DONE
+7. There should be a native to WoW code that tells us that the prey system was been reset or part of the weekly reset so that we can always have the number of Prey available correct each week without needing to toon hop. - PARTIAL
+8. Add Fade and Hide Options to the Currency and Warband Panels so that users can hide them combat or fade until moused over. Also a Minimmize system to collaopse to the panel header window.

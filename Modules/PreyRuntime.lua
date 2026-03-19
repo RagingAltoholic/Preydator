@@ -196,6 +196,15 @@ function PreyRuntimeModule:EvaluateQuestLifecycle(state, questID, hasActiveQuest
 end
 
 function PreyRuntimeModule:FindPreyWidgetProgressState(activeQuestID, context)
+    local bridge = Preydator and Preydator.GetModule and Preydator:GetModule("PreyWidgetBridge")
+    local bridgeFn = bridge and bridge.GetWidgetState
+    if type(bridgeFn) == "function" then
+        local ok, progressState, tooltipText, progressPercent = pcall(bridgeFn, bridge, activeQuestID)
+        if ok then
+            return true, progressState, tooltipText, progressPercent
+        end
+    end
+
     if not (C_UIWidgetManager and C_UIWidgetManager.GetAllWidgetsBySetID and C_UIWidgetManager.GetPreyHuntProgressWidgetVisualizationInfo) then
         return false, nil, nil, nil
     end

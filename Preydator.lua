@@ -19,7 +19,6 @@ local UiMapPoint = _G.UiMapPoint
 local GetTime = _G.GetTime
 local GetCursorPosition = _G.GetCursorPosition
 local GetZoneText = _G.GetZoneText
-local IsInInstance = _G.IsInInstance
 local SlashCmdList = _G["SlashCmdList"]
 local Settings = _G["Settings"]
 local geterrorhandler = _G.geterrorhandler
@@ -375,6 +374,14 @@ local state = {
     lastAmbushSystemMessage = nil,
     v2LastAcceptedQuestID = nil,
     v2LastClearedQuestKey = nil,
+    v2TransitionCounters = {
+        accepted = 0,
+        acceptedSuppressed = 0,
+        cleared = 0,
+        clearedSuppressed = 0,
+        zoneEntered = 0,
+        zoneExited = 0,
+    },
 }
 
 local UPDATE_INTERVAL_SECONDS = 0.5
@@ -389,10 +396,19 @@ Preydator.GetSettings = function()
 end
 
 Preydator.GetBarFrame = function()
+    local barUI = Preydator.GetModule and Preydator:GetModule("PreyBarUI")
+    if barUI and type(barUI.GetBarFrame) == "function" then
+        local frame = barUI:GetBarFrame()
+        if frame then return frame end
+    end
     return barFrame
 end
 
 Preydator.GetLabelFrames = function()
+    local barUI = Preydator.GetModule and Preydator:GetModule("PreyBarUI")
+    if barUI and type(barUI.GetLabelFrames) == "function" then
+        return barUI:GetLabelFrames()
+    end
     return {
         prefix = stageText,
         suffix = stageSuffixText,
@@ -1292,132 +1308,13 @@ local function StringContainsInsensitiveSafe(haystack, needle)
     return ok and found or false
 end
 
-local function IsAmbushSystemMessage(message, sender, sourceEvent)
-    if type(message) ~= "string" then
-        return false
-    end
-
-    local activeQuestID = nil
-    if state and IsValidQuestID(state.activeQuestID) and IsQuestStillActive(state.activeQuestID) then
-        activeQuestID = state.activeQuestID
-    else
-        local liveQuestID = GetCurrentActivePreyQuest()
-        if IsValidQuestID(liveQuestID) and IsQuestStillActive(liveQuestID) then
-            activeQuestID = liveQuestID
-        end
-    end
-
-    if not IsValidQuestID(activeQuestID) then
-        return false
-    end
-
-    -- Detection relies solely on prey name match to avoid English-only string dependency
-    -- and to eliminate the double-trigger caused by both the "Ambushed!" system message
-    -- and CHAT_MSG_MONSTER_SAY firing for the same encounter.
-    local preyName = state and state.preyTargetName
-    if (type(preyName) ~= "string" or preyName == "") and IsValidQuestID(activeQuestID) then
-        local derivedName = ExtractPreyTargetFromQuestTitle(activeQuestID)
-        if type(derivedName) == "string" and derivedName ~= "" then
-            preyName = derivedName
-        end
-    end
-
-    if sourceEvent ~= "CHAT_MSG_SYSTEM" and type(preyName) == "string" and preyName ~= "" then
-        if StringContainsInsensitiveSafe(message, preyName) or StringContainsInsensitiveSafe(sender, preyName) then
-            return true
-        end
-    end
-
-    -- Fallback for early-stage hunts where prey name may not be resolved yet.
-    local inPreyZone = state and state.inPreyZone == true
-    if not inPreyZone and IsValidQuestID(activeQuestID) then
-        local preyZoneMapID = nil
-        if state and state.activeQuestID == activeQuestID then
-            preyZoneMapID = state.preyZoneMapID
-        end
-        if not preyZoneMapID then
-            local _, resolvedMapID = GetPreyZoneInfo(activeQuestID)
-            preyZoneMapID = resolvedMapID
-        end
-        if preyZoneMapID then
-            inPreyZone = IsPlayerInPreyZone(preyZoneMapID) == true
-        end
-    end
-
-    if IsValidQuestID(activeQuestID) and inPreyZone then
-        if StringContainsInsensitiveSafe(message, "ambush")
-            or StringContainsInsensitiveSafe(message, "ambushed")
-        then
-            return true
-        end
-    end
-
-    return false
-end
-
-local function ShouldScanAmbushChat()
-    local activeQuestID = nil
-    if state and IsValidQuestID(state.activeQuestID) and IsQuestStillActive(state.activeQuestID) then
-        activeQuestID = state.activeQuestID
-    else
-        local liveQuestID = GetCurrentActivePreyQuest()
-        if IsValidQuestID(liveQuestID) and IsQuestStillActive(liveQuestID) then
-            activeQuestID = liveQuestID
-        end
-    end
-
-    if not IsValidQuestID(activeQuestID) then
-        return false
-    end
-
-    local now = GetTime and GetTime() or 0
-    if ((state.nextAmbushScanAt or 0) > now) then
-        return false
-    end
-
-    -- Slice D ownership cut: ZoneGateV2 decides in-zone and in-instance scan eligibility.
-    local preyZoneMapID = nil
-    if state and state.activeQuestID == activeQuestID then
-        preyZoneMapID = state.preyZoneMapID
-    end
-    if not preyZoneMapID then
-        local _, resolvedMapID = GetPreyZoneInfo(activeQuestID)
-        preyZoneMapID = resolvedMapID
-    end
-
-    local zoneGate = Preydator and Preydator.GetModule and Preydator:GetModule("ZoneGateV2")
-    local gateFn = zoneGate and zoneGate.CanScan
-    if type(gateFn) == "function" then
-        local ok, canScan = pcall(gateFn, zoneGate, {
-            zoneMapID = preyZoneMapID,
-        })
-        if ok then
-            return canScan == true
-        end
-    end
-
-    local inPreyZone = IsPlayerInPreyZone(preyZoneMapID) == true
-    if not inPreyZone then
-        return false
-    end
-
-    if not IsInInstance then
-        return true
-    end
-
-    local ok, inInstance, instanceType = pcall(IsInInstance)
-    if not ok or not inInstance then
-        return true
-    end
-
-    return instanceType ~= "party"
-        and instanceType ~= "raid"
-        and instanceType ~= "scenario"
-        and instanceType ~= "delve"
-end
+-- Ambush detection ownership: AmbushDetectorV2 is the sole owner.
+-- IsAmbushSystemMessage() and ShouldScanAmbushChat() removed (P0 cutover).
+-- All ambush gating runs through AmbushDetectorV2:MaybeHandleSystemMessage /
+-- MaybeHandleNpcMessage, with ZoneGateV2 providing zone/instance eligibility.
 
 local function TriggerAmbushAlert(message, source)
-    local module = Preydator and Preydator.GetModule and (Preydator:GetModule("PreyAudioV2") or Preydator:GetModule("PreyAudio"))
+    local module = Preydator and Preydator.GetModule and Preydator:GetModule("PreyAudio")
     local fn = module and module.TriggerAmbushAlert
     if type(fn) == "function" then
         local ok = pcall(fn, module, message, source)
@@ -1426,35 +1323,118 @@ local function TriggerAmbushAlert(message, source)
         end
     end
 
-    -- Fallback keeps alert behavior available if the audio module is unavailable.
-    if tonumber(state.stage) and tonumber(state.stage) >= 4 then
-        AddDebugLog("Ambush", "Suppressed at stage " .. tostring(state.stage) .. " from " .. tostring(source), false)
-        return
+    AddDebugLog("Ambush", "PreyAudio module unavailable or errored; alert skipped", false)
+end
+
+local function GetV2QuestMetadata(questID)
+    local scanner = Preydator and Preydator.GetModule and Preydator:GetModule("HuntScanner")
+    local metaFn = scanner and scanner.GetQuestMetadata
+    if type(metaFn) ~= "function" then
+        return nil
     end
 
-    local now = GetTime and GetTime() or 0
-    if ((state.lastAmbushAlertAt or 0) + 45.0) > now then
-        AddDebugLog("Ambush", "Deduped from " .. tostring(source) .. ": " .. tostring(message), false)
-        return
+    local okMeta, resolvedMeta = pcall(metaFn, scanner, questID)
+    if not okMeta or type(resolvedMeta) ~= "table" then
+        return nil
     end
 
-    state.lastAmbushSystemMessage = message
-    state.lastAmbushAlertAt = now
-    state.nextAmbushScanAt = now + 120.0
+    return resolvedMeta
+end
 
-    if settings.ambushVisualEnabled ~= false then
-        state.ambushAlertUntil = now + AMBUSH_ALERT_DURATION_SECONDS
+local function EmitV2QuestAccepted(questID, context)
+    local counters = type(state.v2TransitionCounters) == "table" and state.v2TransitionCounters or {}
+    state.v2TransitionCounters = counters
+    local normalizedQuestID = tonumber(questID)
+    if not IsValidQuestID(normalizedQuestID) then
+        return false
     end
 
-    if settings.soundsEnabled ~= false and settings.ambushSoundEnabled ~= false then
-        local ambushPath = ResolveAmbushAlertSoundPath()
-        if ambushPath then
-            PlaySoundFile(ambushPath, (settings and settings.soundChannel) or "SFX")
-        end
+    if tonumber(state.v2LastAcceptedQuestID) == normalizedQuestID then
+        counters.acceptedSuppressed = (tonumber(counters.acceptedSuppressed) or 0) + 1
+        return false
     end
 
-    AddDebugLog("Ambush", "Detected from " .. tostring(source) .. ": " .. tostring(message), true)
-    UpdateBarDisplay()
+    local coordinator = Preydator and Preydator.GetModule and Preydator:GetModule("RuntimeCoordinatorV2")
+    local fn = coordinator and coordinator.HandleInternalEvent
+    if type(fn) ~= "function" then
+        return false
+    end
+
+    local payload = type(context) == "table" and context or {}
+    local scannerMeta = GetV2QuestMetadata(normalizedQuestID)
+    local resolvedZoneName, resolvedZoneMapID = GetPreyZoneInfo(normalizedQuestID)
+    local zoneMapID = (scannerMeta and scannerMeta.zoneMapID) or payload.zoneMapID or resolvedZoneMapID
+
+    local inPreyZone = nil
+    if payload.inPreyZone ~= nil then
+        inPreyZone = payload.inPreyZone == true
+    elseif zoneMapID then
+        inPreyZone = IsPlayerInPreyZone(zoneMapID) == true
+    else
+        inPreyZone = false
+    end
+
+    local acceptedPayload = {
+        questID = normalizedQuestID,
+        targetName = payload.targetName or state.preyTargetName,
+        difficulty = (scannerMeta and scannerMeta.difficulty) or payload.difficulty or state.preyTargetDifficulty,
+        zoneMapID = zoneMapID,
+        zoneName = (scannerMeta and scannerMeta.zoneName) or payload.zoneName or resolvedZoneName,
+        inPreyZone = inPreyZone,
+        stage = tonumber(payload.stage) or tonumber(state.stage) or 1,
+        sourceType = (scannerMeta and scannerMeta.sourceType) or payload.sourceType or "unknown",
+        acceptedAt = tonumber(payload.acceptedAt) or (GetTime and (tonumber(GetTime()) or 0) or 0),
+    }
+
+    local ok = pcall(fn, coordinator, "PREY_QUEST_ACCEPTED", acceptedPayload)
+    if not ok then
+        return false
+    end
+
+    state.v2LastAcceptedQuestID = normalizedQuestID
+    state.v2LastClearedQuestKey = nil
+    counters.accepted = (tonumber(counters.accepted) or 0) + 1
+    return true
+end
+
+local function EmitV2QuestCleared(questID, reason, context)
+    local counters = type(state.v2TransitionCounters) == "table" and state.v2TransitionCounters or {}
+    state.v2TransitionCounters = counters
+    local normalizedQuestID = tonumber(questID)
+    if not IsValidQuestID(normalizedQuestID) then
+        return false
+    end
+
+    local clearReason = type(reason) == "string" and reason ~= "" and reason or "ended"
+    local clearKey = tostring(normalizedQuestID) .. ":" .. clearReason
+    if clearKey == state.v2LastClearedQuestKey then
+        counters.clearedSuppressed = (tonumber(counters.clearedSuppressed) or 0) + 1
+        return false
+    end
+
+    local coordinator = Preydator and Preydator.GetModule and Preydator:GetModule("RuntimeCoordinatorV2")
+    local fn = coordinator and coordinator.HandleInternalEvent
+    if type(fn) ~= "function" then
+        return false
+    end
+
+    local payload = type(context) == "table" and context or {}
+    local ok = pcall(fn, coordinator, "PREY_QUEST_CLEARED", {
+        questID = normalizedQuestID,
+        stage = tonumber(payload.stage) or tonumber(state.stage),
+        difficulty = payload.difficulty or state.preyTargetDifficulty,
+        reason = clearReason,
+    })
+    if not ok then
+        return false
+    end
+
+    state.v2LastClearedQuestKey = clearKey
+    if tonumber(state.v2LastAcceptedQuestID) == normalizedQuestID then
+        state.v2LastAcceptedQuestID = nil
+    end
+    counters.cleared = (tonumber(counters.cleared) or 0) + 1
+    return true
 end
 
 IsQuestStillActive = function(questID)
@@ -1516,7 +1496,7 @@ AddDebugLog = function(kind, message, forcePrint)
 end
 
 TryPlaySound = function(path, ignoreSoundToggle)
-    local module = Preydator and Preydator.GetModule and (Preydator:GetModule("PreyAudioV2") or Preydator:GetModule("PreyAudio"))
+    local module = Preydator and Preydator.GetModule and Preydator:GetModule("PreyAudio")
     local fn = module and module.TryPlaySound
     if type(fn) == "function" then
         local ok, didPlay = pcall(fn, module, path, ignoreSoundToggle)
@@ -1525,12 +1505,11 @@ TryPlaySound = function(path, ignoreSoundToggle)
         end
     end
 
-    local channel = (settings and settings.soundChannel) or "SFX"
-    return PlaySoundFile(path, channel) and true or false
+    return false
 end
 
 local function ResolveStageSoundPath(stage)
-    local module = Preydator and Preydator.GetModule and (Preydator:GetModule("PreyAudioV2") or Preydator:GetModule("PreyAudio"))
+    local module = Preydator and Preydator.GetModule and Preydator:GetModule("PreyAudio")
     local fn = module and module.ResolveStageSoundPath
     if type(fn) == "function" then
         local ok, resolvedPath = pcall(fn, module, stage)
@@ -1539,20 +1518,11 @@ local function ResolveStageSoundPath(stage)
         end
     end
 
-    stage = tonumber(stage)
-    if not stage then
-        return nil
-    end
-
-    if settings and settings.stageSounds and type(settings.stageSounds[stage]) == "string" and settings.stageSounds[stage] ~= "" then
-        return settings.stageSounds[stage]
-    end
-
-    return GetDefaultStageSoundPath(stage)
+    return nil
 end
 
 TryPlayStageSound = function(stage, ignoreSoundToggle)
-    local module = Preydator and Preydator.GetModule and (Preydator:GetModule("PreyAudioV2") or Preydator:GetModule("PreyAudio"))
+    local module = Preydator and Preydator.GetModule and Preydator:GetModule("PreyAudio")
     local fn = module and module.TryPlayStageSound
     if type(fn) == "function" then
         local ok, didPlay = pcall(fn, module, stage, ignoreSoundToggle)
@@ -1561,20 +1531,43 @@ TryPlayStageSound = function(stage, ignoreSoundToggle)
         end
     end
 
-    local path = ResolveStageSoundPath(stage)
-    if not path then
+    return false
+end
+
+Preydator.CanPlayStageAudioNow = function(questID, preyZoneMapID)
+    local liveQuestID = tonumber(questID)
+    local zoneMapID = tonumber(preyZoneMapID)
+    local stateInPreyZone = state and state.inPreyZone == true
+
+    if not zoneMapID and IsValidQuestID(liveQuestID) then
+        local _, resolvedMapID = GetPreyZoneInfo(liveQuestID)
+        zoneMapID = tonumber(resolvedMapID)
+    end
+
+    if not zoneMapID then
         return false
     end
 
-    if state.stageSoundPlayed[stage] then
+    local zoneGate = Preydator and Preydator.GetModule and Preydator:GetModule("ZoneGateV2")
+    local gateFn = zoneGate and zoneGate.CanScan
+    if type(gateFn) ~= "function" then
         return false
     end
 
-    local didPlay = TryPlaySound(path, ignoreSoundToggle)
-    if didPlay then
-        state.stageSoundPlayed[stage] = true
+    local ok, canScan = pcall(gateFn, zoneGate, {
+        zoneMapID = zoneMapID,
+    })
+    if ok and canScan == true then
+        return true
     end
-    return didPlay == true
+
+    -- Fallback for subzone-map variance: if runtime already confirmed prey-zone presence,
+    -- do not suppress valid stage progression audio.
+    if stateInPreyZone and IsValidQuestID(liveQuestID) and tonumber(state.activeQuestID) == liveQuestID then
+        return true
+    end
+
+    return false
 end
 
 local function ApplyBarSettings()
@@ -2154,6 +2147,23 @@ local function EnsureBar()
     end
 
     ApplyBarSettings()
+
+    -- Register bar frames with PreyBarUI so it becomes the canonical owner.
+    local barUI = Preydator.GetModule and Preydator:GetModule("PreyBarUI")
+    if barUI and type(barUI.RegisterBarFrames) == "function" then
+        barUI:RegisterBarFrames({
+            barFrame        = barFrame,
+            barFill         = barFill,
+            barSpark        = barSpark,
+            barBorder       = barBorder,
+            stageText       = stageText,
+            stageSuffixText = stageSuffixText,
+            barText         = barText,
+            barAlignmentDot = barAlignmentDot,
+            barTickMarks    = barTickMarks,
+            barTickLabels   = barTickLabels,
+        })
+    end
 end
 
 local function GetStageFromState(progressState)
@@ -2455,7 +2465,7 @@ UpdateBarDisplay = function()
 
     barFrame:Show()
 
-    local stage = forceKillStage and MAX_STAGE or GetStageFromState(state.progressState)
+    local stage = forceKillStage and MAX_STAGE or (tonumber(state.stage) or GetStageFromState(state.progressState))
     local pct = 0
     local displayReason = "default"
     if forceKillStage then
@@ -2555,8 +2565,6 @@ UpdateBarDisplay = function()
 
     state.lastDisplayPct = pct
     state.lastDisplayReason = displayReason
-
-    state.stage = stage
 
     local allowBarDrag = settings and not settings.locked
     local allowEditModeClickOpen = IsEditModePreviewActive()
@@ -3515,6 +3523,11 @@ NormalizeSoundSettings = function()
         settings.ambushSoundPath = KILL_SOUND_PATH
     end
 
+    local channel = tostring(settings.soundChannel or "")
+    if channel ~= "Master" and channel ~= "SFX" and channel ~= "Dialog" and channel ~= "Ambience" then
+        settings.soundChannel = "SFX"
+    end
+
     settings.stageSounds[5] = nil
 end
 
@@ -3541,6 +3554,132 @@ local function ResetAllSettings()
         optionsPanel.PreydatorRefreshControls()
     end
 end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Profile system
+-- Keys that live at the top level of PreydatorDB and must NOT be migrated into
+-- any profile (they are account-wide / warband data).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+Preydator.ProfileSystem = {
+    globalKeys = { profiles = true, activeProfile = true, profileAssignments = true, currency = true },
+}
+
+function Preydator.ProfileSystem.DeepCopy(src, dst)
+    for key in pairs(dst) do dst[key] = nil end
+    for k, v in pairs(src) do
+        if type(v) == "table" then
+            dst[k] = {}
+            Preydator.ProfileSystem.DeepCopy(v, dst[k])
+        else
+            dst[k] = v
+        end
+    end
+end
+
+function Preydator.ProfileSystem.EnsureProfiles()
+    local db = _G.PreydatorDB
+    if not db.profiles then
+        -- Migrate existing flat settings keys into a "Default" profile, but
+        -- leave account-wide keys (currency snapshots, etc.) at the top level.
+        local migrated = {}
+        for k, v in pairs(db) do
+            if not Preydator.ProfileSystem.globalKeys[k] then migrated[k] = v end
+        end
+        for k in pairs(db) do
+            if not Preydator.ProfileSystem.globalKeys[k] then db[k] = nil end
+        end
+        db.profiles = { ["Default"] = migrated }
+        db.activeProfile = "Default"
+        db.profileAssignments = {}
+    end
+    if not db.profiles["Default"] then
+        db.profiles["Default"] = {}
+    end
+    if not db.activeProfile or not db.profiles[db.activeProfile] then
+        db.activeProfile = "Default"
+    end
+    if not db.profileAssignments then
+        db.profileAssignments = {}
+    end
+end
+
+function Preydator.ProfileSystem.ApplyCurrentSettings()
+    ApplyDefaults(settings, DEFAULTS)
+    NormalizeLabelSettings()
+    NormalizeColorSettings()
+    NormalizeDisplaySettings()
+    NormalizeProgressSettings()
+    NormalizeAmbushSettings()
+    NormalizeSoundSettings()
+    state.forceShowBar = settings.forceShowBar
+    state.stageSoundPlayed = {}
+    ApplyBarSettings()
+    UpdateBarDisplay()
+    if optionsPanel and optionsPanel.PreydatorRefreshControls then
+        optionsPanel.PreydatorRefreshControls()
+    end
+end
+
+function Preydator.ProfileSystem.SwitchToProfile(profileName)
+    local db = _G.PreydatorDB
+    if not db or not db.profiles or not db.profiles[profileName] then return false end
+    db.activeProfile = profileName
+    settings = db.profiles[profileName]
+    Preydator.ProfileSystem.ApplyCurrentSettings()
+    return true
+end
+
+function Preydator.ProfileSystem.CreateProfile(profileName, copyFromName)
+    local db = _G.PreydatorDB
+    if not db or type(profileName) ~= "string" or profileName == "" then
+        return false, "Invalid profile name"
+    end
+    if db.profiles[profileName] then
+        return false, "A profile with that name already exists"
+    end
+    local newProfile = {}
+    if copyFromName and db.profiles[copyFromName] then
+        Preydator.ProfileSystem.DeepCopy(db.profiles[copyFromName], newProfile)
+    end
+    db.profiles[profileName] = newProfile
+    return true
+end
+
+function Preydator.ProfileSystem.DeleteProfile(profileName)
+    local db = _G.PreydatorDB
+    if not db or not db.profiles then return false, "No profiles" end
+    if profileName == "Default" then return false, "Cannot delete the Default profile" end
+    if not db.profiles[profileName] then return false, "Profile not found" end
+    if db.activeProfile == profileName then return false, "Cannot delete the active profile" end
+    db.profiles[profileName] = nil
+    if db.profileAssignments then
+        for charKey, name in pairs(db.profileAssignments) do
+            if name == profileName then db.profileAssignments[charKey] = nil end
+        end
+    end
+    return true
+end
+
+function Preydator.ProfileSystem.GetAllNames()
+    local db = _G.PreydatorDB
+    if not db or not db.profiles then return { "Default" } end
+    local names = {}
+    for name in pairs(db.profiles) do names[#names + 1] = name end
+    table.sort(names)
+    return names
+end
+
+function Preydator.ProfileSystem.CopyProfileIntoCurrent(sourceName)
+    local db = _G.PreydatorDB
+    if not db or not db.profiles or not db.profiles[sourceName] then
+        return false, "Source profile not found"
+    end
+    Preydator.ProfileSystem.DeepCopy(db.profiles[sourceName], settings)
+    Preydator.ProfileSystem.ApplyCurrentSettings()
+    return true
+end
+
 
 local function FrameHasScriptSafe(frameRef, scriptName)
     if not frameRef or type(scriptName) ~= "string" or not frameRef.HasScript then
@@ -3972,6 +4111,12 @@ local function PrintInspectState(outputMode)
     add("- time=" .. string.format("%.3f", now) .. " | zone=" .. tostring(GetZoneText and GetZoneText() or "?") .. " | playerMapID=" .. tostring(playerMapID) .. " | playerMap=" .. tostring(playerMapName))
     add("- quest live=" .. tostring(liveQuestID) .. " | hasActive=" .. tostring(hasActiveQuest) .. " | isOnQuest=" .. tostring(questOnLog) .. " | completed=" .. tostring(questCompleted))
     add("- quest tracked=" .. tostring(state.activeQuestID) .. " | progressState=" .. tostring(state.progressState) .. " | progressPercent=" .. tostring(state.progressPercent) .. " | stage=" .. tostring(state.stage) .. " (" .. tostring(GetStageLabel(state.stage)) .. ")")
+    add("- v2 transitions accepted=" .. tostring((state.v2TransitionCounters and state.v2TransitionCounters.accepted) or 0)
+        .. " (suppressed=" .. tostring((state.v2TransitionCounters and state.v2TransitionCounters.acceptedSuppressed) or 0) .. ")"
+        .. " | cleared=" .. tostring((state.v2TransitionCounters and state.v2TransitionCounters.cleared) or 0)
+        .. " (suppressed=" .. tostring((state.v2TransitionCounters and state.v2TransitionCounters.clearedSuppressed) or 0) .. ")"
+        .. " | zone enter/exit=" .. tostring((state.v2TransitionCounters and state.v2TransitionCounters.zoneEntered) or 0)
+        .. "/" .. tostring((state.v2TransitionCounters and state.v2TransitionCounters.zoneExited) or 0))
     add("- prey target=" .. tostring(state.preyTargetName) .. " | difficulty=" .. tostring(state.preyTargetDifficulty) .. " | ambushAlertRemaining=" .. string.format("%.2f", math.max(0, (state.ambushAlertUntil or 0) - now)))
     add("- preyZone mapID=" .. tostring(state.preyZoneMapID) .. " | preyZoneName=" .. tostring(state.preyZoneName) .. " | inPreyZone=" .. tostring(state.inPreyZone))
     add("- killStageRemaining=" .. string.format("%.2f", math.max(0, (state.killStageUntil or 0) - now)) .. " | lastWidgetAge=" .. string.format("%.2f", math.max(0, now - (state.lastWidgetSeenAt or 0))))
@@ -4268,6 +4413,15 @@ ExtractWidgetQuestID = function(info)
 end
 
 local function FindPreyWidgetProgressState(activeQuestID)
+    local bridge = Preydator and Preydator.GetModule and Preydator:GetModule("PreyWidgetBridge")
+    local bridgeFn = bridge and bridge.GetWidgetState
+    if type(bridgeFn) == "function" then
+        local ok, progressState, tooltipText, progressPercent = pcall(bridgeFn, bridge, activeQuestID)
+        if ok then
+            return progressState, tooltipText, progressPercent
+        end
+    end
+
     local runtime = Preydator and Preydator.GetModule and Preydator:GetModule("PreyRuntime")
     local runtimeFn = runtime and runtime.FindPreyWidgetProgressState
     if type(runtimeFn) == "function" then
@@ -4288,46 +4442,7 @@ local function FindPreyWidgetProgressState(activeQuestID)
             return progressState, tooltipText, progressPercent
         end
     end
-
-    if not (C_UIWidgetManager and C_UIWidgetManager.GetAllWidgetsBySetID and C_UIWidgetManager.GetPreyHuntProgressWidgetVisualizationInfo) then
-        return nil
-    end
-
-    local preyWidgetType = GetWidgetTypePreyHuntProgress()
-    local shownStateShown = GetShownStateShown()
-    local fallbackState, fallbackTooltip, fallbackPct = nil, nil, nil
-
-    for _, setID in ipairs(GetCandidateWidgetSetIDs()) do
-        local widgets = C_UIWidgetManager.GetAllWidgetsBySetID(setID)
-        if widgets then
-            for _, widget in ipairs(widgets) do
-                if widget and widget.widgetType == preyWidgetType then
-                    local info = C_UIWidgetManager.GetPreyHuntProgressWidgetVisualizationInfo(widget.widgetID)
-                    if info and info.shownState == shownStateShown then
-                        local pct = ExtractProgressPercent(info, info.tooltip)
-                        if IsValidQuestID(activeQuestID) then
-                            local widgetQuestID = ExtractWidgetQuestID(info)
-                            if widgetQuestID == activeQuestID then
-                                return info.progressState, info.tooltip, pct
-                            end
-
-                            if widgetQuestID == nil and fallbackState == nil then
-                                fallbackState, fallbackTooltip, fallbackPct = info.progressState, info.tooltip, pct
-                            end
-                        else
-                            return info.progressState, info.tooltip, pct
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    if IsValidQuestID(activeQuestID) then
-        return fallbackState, fallbackTooltip, fallbackPct
-    end
-
-    return nil, nil, nil
+    return nil
 end
 
 local function ResetStateForNewQuest(questID)
@@ -4430,29 +4545,22 @@ local function UpdatePreyState()
 
     if shouldClear then
         local endingQuestID = effectiveQuestID or state.activeQuestID or questID or state.v2LastAcceptedQuestID
-        local clearKey = tostring(endingQuestID or "nil") .. ":ended"
         local liveQuestAtClear = GetCurrentActivePreyQuest()
         local sameQuestStillLive = IsValidQuestID(endingQuestID)
             and IsValidQuestID(liveQuestAtClear)
             and tonumber(endingQuestID) == tonumber(liveQuestAtClear)
             and IsQuestStillActive(liveQuestAtClear)
+        local endedQuestPrefix = tostring(tonumber(endingQuestID) or "") .. ":"
+        local alreadyClearedEndingQuest = type(state.v2LastClearedQuestKey) == "string"
+            and endedQuestPrefix ~= ":"
+            and string.find(state.v2LastClearedQuestKey, endedQuestPrefix, 1, true) == 1
         local shouldEmitV2Clear = IsValidQuestID(state.activeQuestID)
             or (IsValidQuestID(state.v2LastAcceptedQuestID) and IsValidQuestID(endingQuestID) and tonumber(state.v2LastAcceptedQuestID) == tonumber(endingQuestID))
-        if shouldEmitV2Clear and not sameQuestStillLive and clearKey ~= state.v2LastClearedQuestKey then
-            local coordinator = Preydator and Preydator.GetModule and Preydator:GetModule("RuntimeCoordinatorV2")
-            local fn = coordinator and coordinator.HandleInternalEvent
-            if type(fn) == "function" then
-                pcall(fn, coordinator, "PREY_QUEST_CLEARED", {
-                    questID = endingQuestID,
-                    stage = tonumber(state.stage),
-                    difficulty = state.preyTargetDifficulty,
-                    reason = "ended",
-                })
-            end
-            state.v2LastClearedQuestKey = clearKey
-            if tonumber(state.v2LastAcceptedQuestID) == tonumber(endingQuestID) then
-                state.v2LastAcceptedQuestID = nil
-            end
+        if shouldEmitV2Clear and not sameQuestStillLive and not alreadyClearedEndingQuest then
+            EmitV2QuestCleared(endingQuestID, "ended", {
+                stage = tonumber(state.stage),
+                difficulty = state.preyTargetDifficulty,
+            })
         end
 
         DebugLogPreyState("clear", questID, hasWidgetData, state.progressState, state.progressPercent, state.inPreyZone)
@@ -4493,10 +4601,19 @@ local function UpdatePreyState()
             local coordinator = Preydator and Preydator.GetModule and Preydator:GetModule("RuntimeCoordinatorV2")
             local fn = coordinator and coordinator.HandleInternalEvent
             if type(fn) == "function" then
-                pcall(fn, coordinator, zoneEventName, {
+                local okZoneEvent = pcall(fn, coordinator, zoneEventName, {
                     questID = state.activeQuestID,
                     zoneMapID = state.preyZoneMapID,
                 })
+                if okZoneEvent then
+                    local counters = type(state.v2TransitionCounters) == "table" and state.v2TransitionCounters or {}
+                    state.v2TransitionCounters = counters
+                    if zoneEventName == "PREY_ZONE_ENTERED" then
+                        counters.zoneEntered = (tonumber(counters.zoneEntered) or 0) + 1
+                    else
+                        counters.zoneExited = (tonumber(counters.zoneExited) or 0) + 1
+                    end
+                end
                 AddDebugLog("V2Zone", "event=" .. tostring(zoneEventName)
                     .. " | inPreyZone=" .. tostring(nowInPreyZone)
                     .. " | prevInPreyZone=" .. tostring(prevInPreyZone)
@@ -4504,35 +4621,6 @@ local function UpdatePreyState()
                     .. " | drift=" .. tostring(hasZoneStateDrift), false)
             end
         end
-    end
-
-    if IsValidQuestID(state.activeQuestID) and tonumber(state.v2LastAcceptedQuestID) ~= tonumber(state.activeQuestID) then
-        local coordinator = Preydator and Preydator.GetModule and Preydator:GetModule("RuntimeCoordinatorV2")
-        local fn = coordinator and coordinator.HandleInternalEvent
-        if type(fn) == "function" then
-            local scanner = Preydator and Preydator.GetModule and Preydator:GetModule("HuntScanner")
-            local metaFn = scanner and scanner.GetQuestMetadata
-            local scannerMeta = nil
-            if type(metaFn) == "function" then
-                local okMeta, resolvedMeta = pcall(metaFn, scanner, state.activeQuestID)
-                if okMeta and type(resolvedMeta) == "table" then
-                    scannerMeta = resolvedMeta
-                end
-            end
-            pcall(fn, coordinator, "PREY_QUEST_ACCEPTED", {
-                questID = state.activeQuestID,
-                targetName = state.preyTargetName,
-                difficulty = (scannerMeta and scannerMeta.difficulty) or state.preyTargetDifficulty,
-                zoneMapID = (scannerMeta and scannerMeta.zoneMapID) or state.preyZoneMapID,
-                zoneName = (scannerMeta and scannerMeta.zoneName) or state.preyZoneName,
-                inPreyZone = ((scannerMeta and scannerMeta.zoneMapID) and IsPlayerInPreyZone(scannerMeta.zoneMapID) == true) or (state.inPreyZone == true),
-                stage = tonumber(state.stage) or 1,
-                sourceType = (scannerMeta and scannerMeta.sourceType) or "unknown",
-                acceptedAt = GetTime and (tonumber(GetTime()) or 0) or 0,
-            })
-        end
-        state.v2LastAcceptedQuestID = tonumber(state.activeQuestID)
-        state.v2LastClearedQuestKey = nil
     end
 
     local oldProgressState = state.progressState
@@ -4569,13 +4657,43 @@ local function UpdatePreyState()
 
     local oldStage = state.stage
     local newStage = GetStageFromState(state.progressState)
+    state.stage = newStage
+
+    if IsValidQuestID(state.activeQuestID) and tonumber(state.v2LastAcceptedQuestID) ~= tonumber(state.activeQuestID) then
+        EmitV2QuestAccepted(state.activeQuestID, {
+            targetName = state.preyTargetName,
+            difficulty = state.preyTargetDifficulty,
+            zoneMapID = state.preyZoneMapID,
+            zoneName = state.preyZoneName,
+            inPreyZone = state.inPreyZone == true,
+            stage = newStage,
+            sourceType = "unknown",
+        })
+    end
 
     local stageChanged = newStage ~= oldStage
-    if stageChanged then
-        TryPlayStageSound(newStage)
+    local stageAdvanced = stageChanged and newStage > oldStage
+    if stageAdvanced then
+        local canPlayStageAudio = Preydator.CanPlayStageAudioNow and Preydator.CanPlayStageAudioNow(effectiveQuestID or state.activeQuestID, state.preyZoneMapID) == true
+        if hasActiveQuest and questStillActive and canPlayStageAudio then
+            local didPlayStageSound = TryPlayStageSound(newStage)
+            AddDebugLog("Audio", "stage advanced " .. tostring(oldStage) .. "->" .. tostring(newStage) .. " | attempted=true | played=" .. tostring(didPlayStageSound), false)
+        else
+            AddDebugLog("Audio", "stage advanced " .. tostring(oldStage) .. "->" .. tostring(newStage)
+                .. " | suppressed | hasActiveQuest=" .. tostring(hasActiveQuest)
+                .. " | questStillActive=" .. tostring(questStillActive)
+                .. " | gate=" .. tostring(canPlayStageAudio), false)
+        end
     end
 
     if newProgressState ~= PREY_PROGRESS_FINAL or oldProgressState == PREY_PROGRESS_FINAL then
+        ApplyDefaultPreyIconVisibility()
+        UpdateBarDisplay()
+        return
+    end
+
+    -- Do not play completion-adjacent stage audio once the quest is no longer live.
+    if not hasActiveQuest or not questStillActive then
         ApplyDefaultPreyIconVisibility()
         UpdateBarDisplay()
         return
@@ -4587,7 +4705,15 @@ local function UpdatePreyState()
         return
     end
 
-    TryPlayStageSound(MAX_STAGE)
+    if not (Preydator.CanPlayStageAudioNow and Preydator.CanPlayStageAudioNow(effectiveQuestID or state.activeQuestID, state.preyZoneMapID) == true) then
+        AddDebugLog("Audio", "completion stage audio suppressed by gate", false)
+        ApplyDefaultPreyIconVisibility()
+        UpdateBarDisplay()
+        return
+    end
+
+    local didPlayFinalStageSound = TryPlayStageSound(MAX_STAGE)
+    AddDebugLog("Audio", "completion stage audio attempted | played=" .. tostring(didPlayFinalStageSound), false)
 
     ApplyDefaultPreyIconVisibility()
     UpdateBarDisplay()
@@ -4604,33 +4730,9 @@ function Preydator:ShouldUseActivePolling()
     local inEditPreview = IsEditModePreviewActive and IsEditModePreviewActive() == true
     local forceShowBar = state and state.forceShowBar == true
 
-    local contextQuestID = hasLiveQuest and liveQuestID or (hasTrackedQuest and trackedQuestID or nil)
-    local inPreyZone = false
-    if IsValidQuestID(contextQuestID) then
-        local preyZoneMapID = nil
-        if state and state.activeQuestID == contextQuestID then
-            preyZoneMapID = state.preyZoneMapID
-        else
-            local _, resolvedMapID = GetPreyZoneInfo(contextQuestID)
-            preyZoneMapID = resolvedMapID
-        end
-
-        if preyZoneMapID then
-            inPreyZone = IsPlayerInPreyZone(preyZoneMapID) == true
-        else
-            inPreyZone = state and state.inPreyZone == true
-        end
-    end
-
-    local hasHotQuestContext = IsValidQuestID(contextQuestID) and inPreyZone
-
-    -- Do not run widget poll while player is mounted: encounters cannot start while mounted
-    -- so there is no ambush or progress state to detect. Zone events still fire on dismount.
-    local playerIsMounted = IsMounted and IsMounted() == true
-    local hotContextActive = hasHotQuestContext and not playerIsMounted
-
-    return hotContextActive
-        or needsQuestBootstrap
+    -- Active polling is only needed for short-lived transition windows.
+    -- Zone/widget changes are primarily driven by WoW events.
+    return needsQuestBootstrap
         or inKillCarry
         or inEditPreview
         or forceShowBar
@@ -4649,28 +4751,49 @@ function Preydator:SetPollingActive(enabled)
     state.pollingActive = shouldEnable
 
     if shouldEnable then
+        state.nextPollingEligibilityCheckAt = 0
         frame:SetScript("OnUpdate", function(_, elapsed)
             state.elapsedSinceUpdate = (state.elapsedSinceUpdate or 0) + (elapsed or 0)
-            if state.elapsedSinceUpdate < UPDATE_INTERVAL_SECONDS then
+            local now = GetTime and GetTime() or 0
+            local inKillCarry = ((state and state.killStageUntil) or 0) > now
+            local inAmbushAlert = ((state and state.ambushAlertUntil) or 0) > now
+            local inEditPreview = IsEditModePreviewActive and IsEditModePreviewActive() == true
+            local recentlySawWidget = (now - ((state and state.lastWidgetSeenAt) or 0)) <= 2.0
+            local progressState = tonumber(state and state.progressState)
+            local isIdleInZone = IsValidQuestID(state and state.activeQuestID)
+                and state.inPreyZone == true
+                and (progressState == nil or progressState == 0)
+                and not recentlySawWidget
+                and not inKillCarry
+                and not inAmbushAlert
+                and not (state and state.forceShowBar == true)
+                and not inEditPreview
+            local interval = isIdleInZone and 2.0 or UPDATE_INTERVAL_SECONDS
+            if state.elapsedSinceUpdate < interval then
                 return
             end
 
             state.elapsedSinceUpdate = 0
             UpdatePreyState()
 
-            if not Preydator:ShouldUseActivePolling() then
-                Preydator:SetPollingActive(false)
+            if now >= (state.nextPollingEligibilityCheckAt or 0) then
+                state.nextPollingEligibilityCheckAt = now + 2.0
+                if not Preydator:ShouldUseActivePolling() then
+                    Preydator:SetPollingActive(false)
+                end
             end
         end)
     else
         state.elapsedSinceUpdate = 0
+        state.nextPollingEligibilityCheckAt = 0
         frame:SetScript("OnUpdate", nil)
     end
 end
 
 local function OnAddonLoaded()
     _G.PreydatorDB = _G.PreydatorDB or {}
-    settings = _G.PreydatorDB
+    Preydator.ProfileSystem.EnsureProfiles()
+    settings = _G.PreydatorDB.profiles[_G.PreydatorDB.activeProfile]
     ApplyDefaults(settings, DEFAULTS)
     EnsureDebugDB()
     debugDB.enabled = settings.debugSounds and true or false
@@ -5443,14 +5566,14 @@ EnsureOptionsPanel = function()
         button:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
         button:SetText(text)
         button:SetScript("OnClick", function()
-            state.stageSoundPlayed[stageIndex] = nil
             local path = ResolveStageSoundPath(stageIndex)
             if not path then
                 print("Preydator: No stage " .. stageIndex .. " sound configured.")
                 return
             end
 
-            if not TryPlayStageSound(stageIndex, true) then
+            -- Test playback must not mutate per-stage runtime one-shot flags.
+            if not TryPlaySound(path, true) then
                 print("Preydator: Stage " .. stageIndex .. " sound file failed to play. Ensure this file exists as .ogg: " .. tostring(path))
             end
         end)
@@ -5530,6 +5653,29 @@ Preydator.API = {
     GetDefaults = function()
         return DEFAULTS
     end,
+    -- Profile management
+    GetActiveProfileName = function()
+        local db = _G.PreydatorDB
+        return (db and db.activeProfile) or "Default"
+    end,
+    GetAllProfileNames = function()
+        return Preydator.ProfileSystem.GetAllNames()
+    end,
+    SwitchToProfile = function(name)
+        return Preydator.ProfileSystem.SwitchToProfile(name)
+    end,
+    CreateProfile = function(name, copyFromName)
+        return Preydator.ProfileSystem.CreateProfile(name, copyFromName)
+    end,
+    DeleteProfile = function(name)
+        return Preydator.ProfileSystem.DeleteProfile(name)
+    end,
+    CopyProfileFrom = function(sourceName)
+        return Preydator.ProfileSystem.CopyProfileIntoCurrent(sourceName)
+    end,
+    ResetCurrentProfile = function()
+        ResetAllSettings()
+    end,
     GetState = function()
         return state
     end,
@@ -5572,6 +5718,20 @@ Preydator.API = {
     AddSoundFileName = AddSoundFileName,
     RemoveSoundFileName = RemoveSoundFileName,
     ResolveStageSoundPath = ResolveStageSoundPath,
+    ResolveAmbushSoundPath = function()
+        local audio = Preydator and Preydator.GetModule and Preydator:GetModule("PreyAudio")
+        if audio and type(audio.ResolveAmbushSoundPath) == "function" then
+            return audio:ResolveAmbushSoundPath()
+        end
+        return nil
+    end,
+    PlayTestSound = function(path)
+        local audio = Preydator and Preydator.GetModule and Preydator:GetModule("PreyAudio")
+        if audio and type(audio.PlayTestSound) == "function" then
+            return audio:PlayTestSound(path)
+        end
+        return false
+    end,
     TryPlayStageSound = function(stageIndex, force)
         return TryPlayStageSound(stageIndex, force)
     end,
@@ -5696,35 +5856,18 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2)
     local hasTrackedQuest = IsValidQuestID(trackedQuestID) and IsQuestStillActive(trackedQuestID)
     local needsV2Bootstrap = hasLiveQuest and not hasTrackedQuest and tonumber(state.v2LastAcceptedQuestID) ~= tonumber(liveQuestID)
     if needsV2Bootstrap then
-        local coordinator = Preydator and Preydator.GetModule and Preydator:GetModule("RuntimeCoordinatorV2")
-        local fn = coordinator and coordinator.HandleInternalEvent
-        if type(fn) == "function" then
-            local now = GetTime and GetTime() or 0
-            local preyZoneName, preyZoneMapID = GetPreyZoneInfo(liveQuestID)
-            local preyTargetName, preyTargetDifficulty = ExtractPreyTargetFromQuestTitle(liveQuestID)
-            local scanner = Preydator and Preydator.GetModule and Preydator:GetModule("HuntScanner")
-            local metaFn = scanner and scanner.GetQuestMetadata
-            local scannerMeta = nil
-            if type(metaFn) == "function" then
-                local okMeta, resolvedMeta = pcall(metaFn, scanner, liveQuestID)
-                if okMeta and type(resolvedMeta) == "table" then
-                    scannerMeta = resolvedMeta
-                end
-            end
-            pcall(fn, coordinator, "PREY_QUEST_ACCEPTED", {
-                questID = liveQuestID,
-                targetName = preyTargetName,
-                difficulty = (scannerMeta and scannerMeta.difficulty) or preyTargetDifficulty,
-                zoneMapID = (scannerMeta and scannerMeta.zoneMapID) or preyZoneMapID,
-                zoneName = (scannerMeta and scannerMeta.zoneName) or preyZoneName,
-                inPreyZone = (((scannerMeta and scannerMeta.zoneMapID) or preyZoneMapID) and IsPlayerInPreyZone((scannerMeta and scannerMeta.zoneMapID) or preyZoneMapID) == true) or false,
-                stage = tonumber(state and state.stage) or 1,
-                sourceType = (scannerMeta and scannerMeta.sourceType) or "unknown",
-                acceptedAt = now,
-            })
-            state.v2LastAcceptedQuestID = tonumber(liveQuestID)
-            state.v2LastClearedQuestKey = nil
-        end
+        local now = GetTime and GetTime() or 0
+        local preyZoneName, preyZoneMapID = GetPreyZoneInfo(liveQuestID)
+        local preyTargetName, preyTargetDifficulty = ExtractPreyTargetFromQuestTitle(liveQuestID)
+        EmitV2QuestAccepted(liveQuestID, {
+            targetName = preyTargetName,
+            difficulty = preyTargetDifficulty,
+            zoneMapID = preyZoneMapID,
+            zoneName = preyZoneName,
+            stage = tonumber(state and state.stage) or 1,
+            sourceType = "unknown",
+            acceptedAt = now,
+        })
     end
 
     -- Keep legacy tracked state aligned with the authoritative live prey quest immediately.
@@ -5737,20 +5880,15 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2)
     local shouldEmitV2DropClear = hasV2AcceptedQuest and not hasLiveQuest and not hasTrackedQuest
     if shouldEmitV2DropClear then
         local clearQuestID = tonumber(state.v2LastAcceptedQuestID)
-        local clearKey = tostring(clearQuestID) .. ":dropped"
-        if clearKey ~= state.v2LastClearedQuestKey then
-            local coordinator = Preydator and Preydator.GetModule and Preydator:GetModule("RuntimeCoordinatorV2")
-            local fn = coordinator and coordinator.HandleInternalEvent
-            if type(fn) == "function" then
-                pcall(fn, coordinator, "PREY_QUEST_CLEARED", {
-                    questID = clearQuestID,
-                    stage = tonumber(state.stage),
-                    difficulty = state.preyTargetDifficulty,
-                    reason = "dropped",
-                })
-            end
-            state.v2LastClearedQuestKey = clearKey
-            state.v2LastAcceptedQuestID = nil
+        local droppedQuestPrefix = tostring(clearQuestID or "") .. ":"
+        local alreadyClearedDroppedQuest = type(state.v2LastClearedQuestKey) == "string"
+            and droppedQuestPrefix ~= ":"
+            and string.find(state.v2LastClearedQuestKey, droppedQuestPrefix, 1, true) == 1
+        if not alreadyClearedDroppedQuest then
+            EmitV2QuestCleared(clearQuestID, "dropped", {
+                stage = tonumber(state.stage),
+                difficulty = state.preyTargetDifficulty,
+            })
         end
     end
 
@@ -5768,8 +5906,15 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2)
         if detector then
             local lifecycle = Preydator and Preydator.GetModule and Preydator:GetModule("QuestLifecycleV2")
             local v2State = lifecycle and lifecycle:GetState() or nil
-            local hasSystemAmbushKeyword = detector:HandleSystemMessage(arg1)
-            local canListen = detector:ShouldListen(v2State)
+            local hasSystemAmbushKeyword, canListen = false, false
+            if type(detector.MaybeHandleSystemMessage) == "function" then
+                hasSystemAmbushKeyword, canListen = detector:MaybeHandleSystemMessage(v2State, arg1)
+            else
+                canListen = detector:ShouldListen(v2State)
+                if canListen then
+                    hasSystemAmbushKeyword = detector:HandleSystemMessage(arg1)
+                end
+            end
             if canListen and hasSystemAmbushKeyword then
                 TriggerAmbushAlert(arg1, event)
             elseif hasSystemAmbushKeyword then
@@ -5789,8 +5934,15 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2)
             local activeHunt = store and store:GetActiveHunt() or nil
             local zoneMapID = type(activeHunt) == "table" and activeHunt.zoneMapID or nil
             local preyName = type(activeHunt) == "table" and activeHunt.targetName or nil
-            local canListen = detector:ShouldListen(v2State, zoneMapID)
-            local matchedNpcAmbush = detector:HandleNpcMessage(arg1, arg2, preyName)
+            local matchedNpcAmbush, canListen = false, false
+            if type(detector.MaybeHandleNpcMessage) == "function" then
+                matchedNpcAmbush, canListen = detector:MaybeHandleNpcMessage(v2State, zoneMapID, arg1, arg2, preyName)
+            else
+                canListen = detector:ShouldListen(v2State, zoneMapID)
+                if canListen then
+                    matchedNpcAmbush = detector:HandleNpcMessage(arg1, arg2, preyName)
+                end
+            end
             if canListen and matchedNpcAmbush then
                 TriggerAmbushAlert(arg1, event)
             elseif matchedNpcAmbush and not canListen then
@@ -5804,6 +5956,7 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2)
         state.killStageUntil = (GetTime and GetTime() or 0) + 8
         state.progressState = PREY_PROGRESS_FINAL
         state.progressPercent = 100
+        state.stage = MAX_STAGE
         UpdateBarDisplay()
         Preydator:SetPollingActive(true)
     end
@@ -5819,6 +5972,17 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2)
         local isZoneEvent = event == "ZONE_CHANGED"
             or event == "ZONE_CHANGED_INDOORS"
             or event == "ZONE_CHANGED_NEW_AREA"
+        -- Widget events signal WoW UI redraws; rate-limited below to prevent UpdatePreyState thrash.
+        local isWidgetEvent = event == "UPDATE_UI_WIDGET" or event == "UPDATE_ALL_UI_WIDGETS"
+            -- Rate-limit widget events before any quest lookup, zone-map resolution, or widget scan.
+            -- UPDATE_UI_WIDGET can fire for unrelated widgets many times per second while idle.
+            if isWidgetEvent and (now - (state.lastWidgetEventProbeAt or 0)) < 0.5 then
+                return
+            end
+            if isWidgetEvent then
+                state.lastWidgetEventProbeAt = now
+            end
+
         local trackedQuestID = state and state.activeQuestID or nil
         local hasTrackedQuest = IsValidQuestID(trackedQuestID) and IsQuestStillActive(trackedQuestID)
         local liveQuestID = GetCurrentActivePreyQuest()
@@ -5826,23 +5990,7 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2)
         local needsQuestBootstrap = hasLiveQuest and not hasTrackedQuest
         local inKillCarry = ((state and state.killStageUntil) or 0) > now
         local contextQuestID = hasLiveQuest and liveQuestID or (hasTrackedQuest and trackedQuestID or nil)
-        local inPreyZone = false
-
-        if IsValidQuestID(contextQuestID) then
-            local preyZoneMapID = nil
-            if state and state.activeQuestID == contextQuestID then
-                preyZoneMapID = state.preyZoneMapID
-            else
-                local _, resolvedMapID = GetPreyZoneInfo(contextQuestID)
-                preyZoneMapID = resolvedMapID
-            end
-
-            if preyZoneMapID then
-                inPreyZone = IsPlayerInPreyZone(preyZoneMapID) == true
-            else
-                inPreyZone = state and state.inPreyZone == true
-            end
-        end
+        local inPreyZone = state and state.inPreyZone == true
 
         local hasHotQuestContext = IsValidQuestID(contextQuestID) and inPreyZone
         local shouldProbeNow = hasHotQuestContext
@@ -5850,7 +5998,7 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2)
             or inKillCarry
             or (state and state.forceShowBar == true)
 
-        if not shouldProbeNow and not isZoneEvent then
+        if not shouldProbeNow and not isZoneEvent and not isWidgetEvent then
             local lastProbe = state.lastIdleEventProbeAt or 0
             if (lastProbe + 8.0) > now then
                 return

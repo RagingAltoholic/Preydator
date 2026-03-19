@@ -217,10 +217,21 @@ Acceptance criteria:
 
 ## Immediate Remaining Work
 
-1. Weekly cap tracker UI and reset-aware counters per hunt tier.
-2. Achievement gap highlighting pipeline and per-hunt badge rendering.
-3. Continue Hunt scanner edge-case hardening and verify preview/theme parity in all hunt panel states.
-4. Continue modular extraction from core runtime to reduce maintenance risk.
+1. Continue modular extraction from core runtime to reduce maintenance risk (remaining Slice 1 modules).
+2. Weekly cap tracker UI and reset-aware counters per hunt tier.
+3. Achievement gap highlighting pipeline and per-hunt badge rendering.
+4. Continue Hunt scanner edge-case hardening and verify preview/theme parity in all hunt panel states.
+
+## Settings V2 Retrofit Status
+
+Completed:
+- Profiles tab retrofit completed with standard profile-management controls (active/select, create, copy, delete-unused, reset-current).
+- Modules tab now includes one-line module descriptions and a coming-soon disabled Achievement module.
+- Module toggle change detection now drives reload activation correctly.
+- Default Settings tab reorganized into bounded two-column grouped layout.
+
+Result:
+- V2 settings baseline is now stable enough to shift primary focus back to runtime modular extraction and hunt/achievement roadmap epics.
 
 ## Post-v1.7.4 Technical Follow-Up
 
@@ -302,3 +313,4 @@ Additional reward containers to record (optional usage in UI logic):
 - Vendor affordability assistant based on configured spending goals.
 - Weekly summary report (earned, spent, remaining opportunities).
 - Character recommendation helper (which alt benefits most from next hunt).
+- Improve character visibility UX for large rosters (search/filter/multi-column or paged picker for 65+ alts).

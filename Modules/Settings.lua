@@ -24,6 +24,7 @@ local C_CurrencyInfo = _G.C_CurrencyInfo
 
 local COLUMN_LEFT_X = 5
 local COLUMN_RIGHT_X = 221
+local COLUMN_FAR_RIGHT_X = COLUMN_RIGHT_X + (COLUMN_RIGHT_X - COLUMN_LEFT_X)
 local CONTROL_WIDTH = 250
 local TAB_WIDTH = 101
 local PANEL_WIDTH = 760
@@ -352,7 +353,7 @@ local function CreateSlider(parent, x, y, label, minValue, maxValue, step, gette
     container:SetSize(CONTROL_WIDTH + 28, 56)
     container:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
 
-    local title = container:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local title = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOPLEFT", 0, 0)
     title:SetText(label)
 
@@ -642,25 +643,46 @@ local function BuildModulesPage(owner, parent)
     local customizationV2 = Preydator:GetModule("CustomizationStateV2")
 
     local MODULE_LEFT_X = 5
-    local MODULE_RIGHT_X = 221
+    local MODULE_RIGHT_X = 258
     local MODULE_BUTTON_X = 252
     local MODULE_TOP_Y = -42
-    local MODULE_ROW_STEP = 58
+    local MODULE_ROW_STEP = 84
+    local MODULE_DESC_OFFSET_X = 30
+    local MODULE_DESC_OFFSET_Y = 28
+    local MODULE_DESC_WIDTH = 200
+    local MODULE_CHECKBOX_LIFT = 8
+
+    local function RequestReloadUI()
+        if _G.C_UI and type(_G.C_UI.Reload) == "function" then
+            _G.C_UI.Reload()
+            return
+        end
+        if type(_G.ReloadUI) == "function" then
+            _G.ReloadUI()
+        end
+    end
 
     CreateSectionTitle(parent, MODULE_LEFT_X, -10, L["Module Status"])
     
     local moduleList = {
-        { key = "bar", label = L["Bar Module"] },
-        { key = "sounds", label = L["Sounds Module"] },
-        { key = "currency", label = L["Currency Module"] },
-        { key = "hunt", label = L["Hunt Table Module"] },
-        { key = "warband", label = L["Warband Module"] },
-        { key = "achievement", label = L["Achievement Module"] },
+        { key = "bar", label = L["Bar Module"], desc = L["Controls the main prey progress bar display and behavior."] },
+        { key = "sounds", label = L["Sounds Module"], desc = L["Controls stage sounds and ambush audio settings."] },
+        { key = "currency", label = L["Currency Module"], desc = L["Controls the currency tracker panel and currency displays."] },
+        { key = "hunt", label = L["Hunt Table Module"], desc = L["Controls hunt table data, sorting, and panel features."] },
+        { key = "warband", label = L["Warband Module"], desc = L["Controls the warband currency panel and roster view."] },
+        { key = "achievement", label = L["Achievement Module"], desc = L["Coming soon: achievement tracking is not available yet."], comingSoon = true },
     }
+
+    -- Keep achievements forced off until the module is implemented.
+    if customizationV2 and type(customizationV2.Set) == "function" then
+        customizationV2:Set("customizationV2.moduleEnabled.achievement", false)
+    end
 
     local initialModuleState = {}
     for _, module in ipairs(moduleList) do
-        if customizationV2 and type(customizationV2.IsModuleEnabled) == "function" then
+        if module.comingSoon then
+            initialModuleState[module.key] = false
+        elseif customizationV2 and type(customizationV2.IsModuleEnabled) == "function" then
             initialModuleState[module.key] = customizationV2:IsModuleEnabled(module.key) and true or false
         else
             initialModuleState[module.key] = true
@@ -668,9 +690,7 @@ local function BuildModulesPage(owner, parent)
     end
 
     local reloadButton = CreateActionButton(parent, MODULE_BUTTON_X, -8, 170, L["Reload"], function()
-        if _G.ReloadUI then
-            _G.ReloadUI()
-        end
+        RequestReloadUI()
     end)
 
     local function SetReloadButtonActive(isActive)
@@ -686,6 +706,7 @@ local function BuildModulesPage(owner, parent)
     local function RefreshReloadButtonVisibility()
         local hasChanges = false
         for _, module in ipairs(moduleList) do
+            if not module.comingSoon then
             local current = true
             if customizationV2 and type(customizationV2.IsModuleEnabled) == "function" then
                 current = customizationV2:IsModuleEnabled(module.key) and true or false
@@ -694,6 +715,7 @@ local function BuildModulesPage(owner, parent)
             if current ~= initialModuleState[module.key] then
                 hasChanges = true
                 break
+            end
             end
         end
 
@@ -704,36 +726,77 @@ local function BuildModulesPage(owner, parent)
         local inRightColumn = index > 3
         local rowIndex = (index - 1) % 3
         local x = inRightColumn and MODULE_RIGHT_X or MODULE_LEFT_X
-        local y = MODULE_TOP_Y - (rowIndex * MODULE_ROW_STEP)
+        local yBase = MODULE_TOP_Y - (rowIndex * MODULE_ROW_STEP)
+        local yCheck = yBase + MODULE_CHECKBOX_LIFT
 
-        local moduleCheck = RegisterRefresher(owner, CreateCheckbox(parent, x, y, module.label, function()
+        local moduleCheck = RegisterRefresher(owner, CreateCheckbox(parent, x, yCheck, module.label, function()
+            if module.comingSoon then
+                return false
+            end
             if customizationV2 and type(customizationV2.IsModuleEnabled) == "function" then
                 return customizationV2:IsModuleEnabled(module.key)
             end
             return true
         end, function(value)
+            if module.comingSoon then
+                return
+            end
             if customizationV2 and type(customizationV2.Set) == "function" then
-                customizationV2:Set("moduleEnabled." .. module.key, value and true or false)
+                customizationV2:Set("customizationV2.moduleEnabled." .. module.key, value and true or false)
             end
             RefreshReloadButtonVisibility()
         end))
-        moduleCheck:SetScale(1.1)
+        moduleCheck:SetScale(1)
+
+        if module.comingSoon then
+            moduleCheck:SetEnabled(false)
+            if moduleCheck.EnableMouse then
+                moduleCheck:EnableMouse(false)
+            end
+            moduleCheck:SetAlpha(0.8)
+            if moduleCheck.Text then
+                moduleCheck.Text:SetTextColor(0.72, 0.72, 0.72)
+            end
+            RegisterRefresher(owner, {
+                PreydatorRefresh = function()
+                    moduleCheck:SetEnabled(false)
+                    if moduleCheck.EnableMouse then
+                        moduleCheck:EnableMouse(false)
+                    end
+                    moduleCheck:SetAlpha(0.8)
+                    if moduleCheck.Text then
+                        moduleCheck.Text:SetTextColor(0.72, 0.72, 0.72)
+                    end
+                end,
+            })
+        end
+
+        local desc = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        desc:SetPoint("TOPLEFT", parent, "TOPLEFT", x + MODULE_DESC_OFFSET_X, yBase - MODULE_DESC_OFFSET_Y)
+        desc:SetWidth(MODULE_DESC_WIDTH)
+        desc:SetJustifyH("LEFT")
+        desc:SetWordWrap(true)
+        desc:SetText(module.desc or "")
+        if module.comingSoon then
+            desc:SetTextColor(0.72, 0.72, 0.72)
+        end
     end
 
     RefreshReloadButtonVisibility()
 
     local note = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    note:SetPoint("TOPLEFT", parent, "TOPLEFT", 37, -248)
-    note:SetWidth(430)
+    note:SetPoint("TOPLEFT", parent, "TOPLEFT", 5, -332)
+    note:SetWidth(500)
     note:SetJustifyH("LEFT")
     note:SetWordWrap(true)
+    note:SetText(L["Module changes require a reload to fully apply. Achievement module remains disabled until it is released."])
     do
         local fontPath, fontSize, fontFlags = note:GetFont()
         if fontPath and fontSize then
-            note:SetFont(fontPath, fontSize * 1.8, fontFlags)
+            note:SetFont(fontPath, fontSize * 1.25, fontFlags)
         end
     end
-    note:SetText(L["Enable or disable modules. Note: Disabling a module will prevent its runtime features from executing and will disable its settings controls on other pages."])
+    note:SetTextColor(1.0, 0.88, 0.45)
 end
 
 local function BuildGlobalTopStrip(owner, parent)
@@ -757,15 +820,6 @@ local function BuildGlobalTopStrip(owner, parent)
     local spacing = 5
     local currentX = 8
     local checkboxSpacing = 120
-    
-    -- Enable Addon checkbox (first control)
-    local enableCheck = CreateCheckbox(stripFrame, currentX, -7, L["Enable Addon"], function() return db.enabled ~= false end, function(value)
-        db.enabled = value and true or false
-        api.UpdateBarDisplay()
-    end)
-    enableCheck:SetSize(24, 24)
-    controls[#controls + 1] = enableCheck
-    currentX = currentX + checkboxSpacing
     
     -- Lock Frame checkbox
     local lockCheck = CreateCheckbox(stripFrame, currentX - 5, -7, L["Lock Frame"], function() return db.locked end, function(value)
@@ -822,40 +876,166 @@ local function BuildHuntPage(owner, parent)
         owner:RefreshControls()
     end
 
-    CreateSectionTitle(parent, COLUMN_LEFT_X, -10, L["Hunt Table"])
-    RegisterRefresher(owner, CreateCheckbox(parent, COLUMN_LEFT_X, -38, L["Enable Hunt Table Tracker"], function()
+    local function ToggleCurrencyPanel()
+        local tracker = Preydator:GetModule("CurrencyTracker")
+        if tracker and type(tracker.ToggleCurrencyWindow) == "function" then
+            tracker:ToggleCurrencyWindow()
+        else
+            db.currencyWindowEnabled = not (db.currencyWindowEnabled == true)
+            RefreshCurrencyTrackerPanel()
+        end
+        owner:RefreshControls()
+    end
+
+    local function ToggleWarbandPanel()
+        local tracker = Preydator:GetModule("CurrencyTracker")
+        if tracker and type(tracker.ToggleWarbandWindow) == "function" then
+            tracker:ToggleWarbandWindow()
+        else
+            db.currencyWarbandWindowEnabled = not (db.currencyWarbandWindowEnabled == true)
+            RefreshCurrencyTrackerPanel()
+        end
+        owner:RefreshControls()
+    end
+
+    local function GetKnownWarbandCharacters()
+        local tracker = Preydator:GetModule("CurrencyTracker")
+        if tracker and type(tracker.GetKnownWarbandCharacters) == "function" then
+            return tracker:GetKnownWarbandCharacters() or {}
+        end
+        return {}
+    end
+
+    local function IsWarbandCharacterShown(charKey)
+        local tracker = Preydator:GetModule("CurrencyTracker")
+        if tracker and type(tracker.IsWarbandCharacterShown) == "function" then
+            return tracker:IsWarbandCharacterShown(charKey)
+        end
+        return true
+    end
+
+    local function SetWarbandCharacterShown(charKey, shown)
+        local tracker = Preydator:GetModule("CurrencyTracker")
+        if tracker and type(tracker.SetWarbandCharacterShown) == "function" then
+            tracker:SetWarbandCharacterShown(charKey, shown)
+        else
+            db.currencyWarbandCharacterVisibility = db.currencyWarbandCharacterVisibility or {}
+            db.currencyWarbandCharacterVisibility[charKey] = shown and true or false
+            RefreshCurrencyTrackerPanel()
+        end
+        owner:RefreshControls()
+    end
+
+    local knownCharacters = GetKnownWarbandCharacters()
+    local contentHeight = math.max(1400, 1080 + (math.ceil(#knownCharacters / 2) * 28))
+
+    local contentViewport = CreateFrame("ScrollFrame", nil, parent)
+    contentViewport:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
+    contentViewport:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -20, 0)
+    contentViewport:EnableMouseWheel(true)
+
+    local content = CreateFrame("Frame", nil, contentViewport)
+    content:SetPoint("TOPLEFT", contentViewport, "TOPLEFT", 0, 0)
+    content:SetSize(PANEL_WIDTH - 160, contentHeight)
+    contentViewport:SetScrollChild(content)
+
+    local panelScrollSlider = CreateFrame("Slider", nil, parent, "OptionsSliderTemplate")
+    panelScrollSlider:SetOrientation("VERTICAL")
+    panelScrollSlider:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -2, -24)
+    panelScrollSlider:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -2, 26)
+    panelScrollSlider:SetWidth(16)
+    panelScrollSlider:SetMinMaxValues(0, 100)
+    panelScrollSlider:SetValueStep(1)
+    panelScrollSlider:SetObeyStepOnDrag(true)
+    panelScrollSlider:SetValue(0)
+    if panelScrollSlider.Low then panelScrollSlider.Low:Hide() end
+    if panelScrollSlider.High then panelScrollSlider.High:Hide() end
+    if panelScrollSlider.Text then panelScrollSlider.Text:Hide() end
+
+    local function UpdatePanelScrollBounds()
+        contentViewport:UpdateScrollChildRect()
+        local currentValue = panelScrollSlider:GetValue() or 0
+        local scrollRange = contentViewport:GetVerticalScrollRange() or 0
+        if scrollRange < 0 then scrollRange = 0 end
+        panelScrollSlider:SetMinMaxValues(0, scrollRange)
+        local clamped = Clamp(currentValue, 0, scrollRange)
+        panelScrollSlider:SetValue(clamped)
+        contentViewport:SetVerticalScroll(clamped)
+        if scrollRange <= 0 then
+            panelScrollSlider:SetEnabled(false)
+            panelScrollSlider:SetAlpha(0.35)
+        else
+            panelScrollSlider:SetEnabled(true)
+            panelScrollSlider:SetAlpha(1)
+        end
+    end
+
+    panelScrollSlider:SetScript("OnValueChanged", function(self, value)
+        local _, maxValue = self:GetMinMaxValues()
+        contentViewport:SetVerticalScroll(Clamp(value or 0, 0, maxValue or 0))
+    end)
+    contentViewport:SetScript("OnMouseWheel", function(_, delta)
+        local minValue, maxValue = panelScrollSlider:GetMinMaxValues()
+        panelScrollSlider:SetValue(Clamp((panelScrollSlider:GetValue() or 0) - (delta * 24), minValue or 0, maxValue or 0))
+    end)
+    if parent.HookScript then
+        parent:HookScript("OnShow", UpdatePanelScrollBounds)
+        parent:HookScript("OnSizeChanged", UpdatePanelScrollBounds)
+    end
+    if content.HookScript then
+        content:HookScript("OnSizeChanged", UpdatePanelScrollBounds)
+    end
+
+    -- Hunt Table section
+    CreateSectionTitle(content, COLUMN_LEFT_X, -10, L["Hunt Table Panel"])
+    RegisterRefresher(owner, CreateCheckbox(content, COLUMN_LEFT_X, -38, L["Enable Hunt Table Tracker"], function()
         return db.huntScannerEnabled ~= false
     end, function(value)
         db.huntScannerEnabled = value and true or false
         RefreshHuntTrackerPanel()
     end))
-    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -80, L["Hunt Panel Side"], 170, HUNT_PANEL_SIDE_OPTIONS, function()
+
+    RegisterRefresher(owner, CreateDropdown(content, COLUMN_LEFT_X, -80, L["Hunt Panel Side"], 170, HUNT_PANEL_SIDE_OPTIONS, function()
         return db.huntScannerSide or "right"
     end, function(key)
         db.huntScannerSide = (key == "left") and "left" or "right"
         RefreshHuntTrackerPanel()
     end))
-    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -144, L["Group Hunts By"], 170, HUNT_GROUP_OPTIONS, function()
+    RegisterRefresher(owner, CreateDropdown(content, COLUMN_LEFT_X, -132, L["Group Hunts By"], 170, HUNT_GROUP_OPTIONS, function()
         return db.huntScannerGroupBy or "difficulty"
     end, function(key)
         db.huntScannerGroupBy = key
         RefreshHuntTrackerPanel()
     end))
-    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -196, L["Sort Hunts By"], 170, HUNT_SORT_OPTIONS, function()
+    RegisterRefresher(owner, CreateDropdown(content, COLUMN_LEFT_X, -184, L["Sort Hunts By"], 170, HUNT_SORT_OPTIONS, function()
         return db.huntScannerSortBy or "zone"
     end, function(key)
         db.huntScannerSortBy = key
         RefreshHuntTrackerPanel()
     end))
-    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -248, L["Anchor Align"], 170, HUNT_ALIGN_OPTIONS, function()
+    RegisterRefresher(owner, CreateDropdown(content, COLUMN_LEFT_X, -236, L["Anchor Align"], 170, HUNT_ALIGN_OPTIONS, function()
         return db.huntScannerAnchorAlign or "top"
     end, function(key)
         db.huntScannerAnchorAlign = (key == "middle" or key == "bottom") and key or "top"
         RefreshHuntTrackerPanel()
     end))
 
-    CreateSectionTitle(parent, COLUMN_RIGHT_X, -10, L["Panel Layout"])
-    RegisterRefresher(owner, CreateSlider(parent, COLUMN_RIGHT_X, -40, L["Hunt Panel Width"], 280, 620, 1, function()
+    local note = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    note:SetPoint("TOPLEFT", content, "TOPLEFT", COLUMN_RIGHT_X, -10)
+    note:SetWidth(260)
+    note:SetJustifyH("LEFT")
+    note:SetWordWrap(true)
+    note:SetText(L["Use Hunt Table controls here to manage sorting, grouping, panel size, and reward cache behavior."])
+
+    local previewButton = CreateActionButton(content, COLUMN_RIGHT_X, -38, 180, L["Show Preview Pane"], function()
+        ToggleHuntPreview()
+    end)
+    RegisterRefresher(owner, previewButton)
+    previewButton.PreydatorRefresh = function(self)
+        self:SetText((db.huntScannerPreviewInOptions == true) and L["Hide Preview Pane"] or L["Show Preview Pane"])
+    end
+
+    RegisterRefresher(owner, CreateSlider(content, COLUMN_RIGHT_X, -80, L["Hunt Panel Width"], 280, 620, 1, function()
         return db.huntScannerWidth or 336
     end, function(value)
         db.huntScannerWidth = math.floor(value + 0.5)
@@ -863,7 +1043,7 @@ local function BuildHuntPage(owner, parent)
     end, function(value)
         return tostring(math.floor(value + 0.5))
     end))
-    RegisterRefresher(owner, CreateSlider(parent, COLUMN_RIGHT_X, -92, L["Hunt Panel Height"], 320, 900, 1, function()
+    RegisterRefresher(owner, CreateSlider(content, COLUMN_RIGHT_X, -132, L["Hunt Panel Height"], 320, 900, 1, function()
         return db.huntScannerHeight or 460
     end, function(value)
         db.huntScannerHeight = math.floor(value + 0.5)
@@ -872,7 +1052,7 @@ local function BuildHuntPage(owner, parent)
         return tostring(math.floor(value + 0.5))
     end))
 
-    RegisterRefresher(owner, CreateSlider(parent, COLUMN_RIGHT_X, -144, L["Hunt Panel Scale"], 0.70, 1.60, 0.05, function()
+    RegisterRefresher(owner, CreateSlider(content, COLUMN_RIGHT_X, -184, L["Hunt Panel Scale"], 0.70, 1.60, 0.05, function()
         return db.huntScannerScale or 1.00
     end, function(value)
         db.huntScannerScale = value
@@ -880,7 +1060,7 @@ local function BuildHuntPage(owner, parent)
     end, function(value)
         return string.format("%.2f", value)
     end))
-    RegisterRefresher(owner, CreateSlider(parent, COLUMN_RIGHT_X, -196, L["Hunt Panel Font Size"], 10, 24, 1, function()
+    RegisterRefresher(owner, CreateSlider(content, COLUMN_RIGHT_X, -236, L["Hunt Panel Font Size"], 10, 24, 1, function()
         return db.huntScannerFontSize or 12
     end, function(value)
         db.huntScannerFontSize = math.floor(value + 0.5)
@@ -889,20 +1069,224 @@ local function BuildHuntPage(owner, parent)
         return tostring(math.floor(value + 0.5))
     end))
 
-    local previewButton = CreateActionButton(parent, COLUMN_RIGHT_X, -250, 180, L["Show Preview Pane"], function()
-        ToggleHuntPreview()
+    -- Currency section
+    CreateSectionTitle(content, COLUMN_LEFT_X, -302, L["Currency Panel"])
+    local currencyToggleButton = CreateActionButton(content, COLUMN_RIGHT_X, -302, 180, L["Open Currency"], function()
+        ToggleCurrencyPanel()
     end)
-    RegisterRefresher(owner, previewButton)
-    previewButton.PreydatorRefresh = function(self)
-        self:SetText((db.huntScannerPreviewInOptions == true) and L["Hide Preview Pane"] or L["Show Preview Pane"])
+    RegisterRefresher(owner, currencyToggleButton)
+    currencyToggleButton.PreydatorRefresh = function(self)
+        self:SetText((db.currencyWindowEnabled == true) and L["Close Currency"] or L["Open Currency"])
+    end
+    RegisterRefresher(owner, CreateCheckbox(content, COLUMN_LEFT_X, -332, L["Show Random Hunts Available"], function()
+        return db.currencyShowAffordableHunts == true
+    end, function(value)
+        db.currencyShowAffordableHunts = value and true or false
+        RefreshCurrencyTrackerPanel()
+    end))
+
+    RegisterRefresher(owner, CreateColorButton(content, COLUMN_LEFT_X, -366, L["Gain Color"], function()
+        return db.currencyDeltaGainColor or { 0.15, 0.9, 0.35, 1 }
+    end, function(color)
+        db.currencyDeltaGainColor = { color[1], color[2], color[3], color[4] }
+        RefreshCurrencyTrackerPanel()
+    end, true))
+    RegisterRefresher(owner, CreateColorButton(content, COLUMN_LEFT_X, -400, L["Spend Color"], function()
+        return db.currencyDeltaLossColor or { 0.95, 0.25, 0.2, 1 }
+    end, function(color)
+        db.currencyDeltaLossColor = { color[1], color[2], color[3], color[4] }
+        RefreshCurrencyTrackerPanel()
+    end, true))
+
+    local previewTitle = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    previewTitle:SetPoint("TOPLEFT", content, "TOPLEFT", COLUMN_LEFT_X, -436)
+    previewTitle:SetText(L["Delta Preview"])
+
+    local function ResolveCurrencyThemeSurface(key, colorKey)
+        local source = THEME_EDITOR_PRESETS[key]
+        if not source and type(db.customThemes) == "table" then
+            source = db.customThemes[key]
+        end
+        if not source then
+            source = THEME_EDITOR_PRESETS.brown
+        end
+        local fallback = THEME_EDITOR_PRESETS.brown[colorKey]
+        local color = source[colorKey] or fallback or { 1, 1, 1, 1 }
+        return { color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1 }
     end
 
-    local note = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    note:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_RIGHT_X, -290)
-    note:SetWidth(260)
-    note:SetJustifyH("LEFT")
-    note:SetWordWrap(true)
-    note:SetText(L["Use Hunt Table controls here to manage sorting, grouping, panel size, and reward cache behavior."])
+    local function CreateDeltaPreviewBox(x, y)
+        local box = CreateFrame("Frame", nil, content, "BackdropTemplate")
+        box:SetSize(42, 62)
+        box:SetPoint("TOPLEFT", content, "TOPLEFT", x, y)
+        box:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            edgeSize = 8,
+            insets = { left = 2, right = 2, top = 2, bottom = 2 },
+        })
+        box:SetBackdropBorderColor(0, 0, 0, 0.85)
+
+        local gainText = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        gainText:SetPoint("TOP", box, "TOP", 0, -14)
+        gainText:SetText("+123")
+
+        local lossText = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        lossText:SetPoint("TOP", box, "TOP", 0, -40)
+        lossText:SetText("-45")
+
+        return { frame = box, gainText = gainText, lossText = lossText }
+    end
+
+    local previewBoxes = {
+        CreateDeltaPreviewBox(COLUMN_LEFT_X, -456),
+        CreateDeltaPreviewBox(COLUMN_LEFT_X + 46, -456),
+        CreateDeltaPreviewBox(COLUMN_LEFT_X + 92, -456),
+    }
+
+    RegisterRefresher(owner, {
+        PreydatorRefresh = function()
+            local gain = db.currencyDeltaGainColor or { 0.15, 0.9, 0.35, 1 }
+            local loss = db.currencyDeltaLossColor or { 0.95, 0.25, 0.2, 1 }
+            local key = db.currencyTheme or "brown"
+            local surfaces = {
+                ResolveCurrencyThemeSurface(key, "section"),
+                ResolveCurrencyThemeSurface(key, "row"),
+                ResolveCurrencyThemeSurface(key, "rowAlt"),
+            }
+            for i, box in ipairs(previewBoxes) do
+                local surface = surfaces[i] or surfaces[2]
+                box.frame:SetBackdropColor(surface[1], surface[2], surface[3], surface[4] or 0.92)
+                box.gainText:SetTextColor(gain[1], gain[2], gain[3], gain[4] or 1)
+                box.lossText:SetTextColor(loss[1], loss[2], loss[3], loss[4] or 1)
+            end
+        end,
+    })
+
+    RegisterRefresher(owner, CreateSlider(content, COLUMN_RIGHT_X, -332, L["Currency Width"], 240, 520, 4, function()
+        return db.currencyWindowWidth or 336
+    end, function(value)
+        db.currencyWindowWidth = math.floor(value + 0.5)
+        RefreshCurrencyTrackerPanel()
+    end, function(value)
+        return tostring(math.floor(value + 0.5))
+    end))
+    RegisterRefresher(owner, CreateSlider(content, COLUMN_RIGHT_X, -384, L["Currency Height"], 64, 700, 4, function()
+        return db.currencyWindowHeight or 280
+    end, function(value)
+        db.currencyWindowHeight = math.floor(value + 0.5)
+        RefreshCurrencyTrackerPanel()
+    end, function(value)
+        return tostring(math.floor(value + 0.5))
+    end))
+    RegisterRefresher(owner, CreateSlider(content, COLUMN_RIGHT_X, -436, L["Currency Font Size"], 10, 24, 1, function()
+        return db.currencyWindowFontSize or 12
+    end, function(value)
+        db.currencyWindowFontSize = math.floor(value + 0.5)
+        RefreshCurrencyTrackerPanel()
+    end, function(value)
+        return tostring(math.floor(value + 0.5))
+    end))
+    RegisterRefresher(owner, CreateSlider(content, COLUMN_RIGHT_X, -488, L["Currency Scale"], 0.70, 1.40, 0.05, function()
+        return db.currencyWindowScale or 1.00
+    end, function(value)
+        db.currencyWindowScale = value
+        RefreshCurrencyTrackerPanel()
+    end, function(value)
+        return string.format("%.2f", value)
+    end))
+
+    -- Warband section
+    CreateSectionTitle(content, COLUMN_LEFT_X, -568, L["Warband Panel"])
+    local warbandToggleButton = CreateActionButton(content, COLUMN_RIGHT_X, -568, 180, L["Open Warband"], function()
+        ToggleWarbandPanel()
+    end)
+    RegisterRefresher(owner, warbandToggleButton)
+    warbandToggleButton.PreydatorRefresh = function(self)
+        self:SetText((db.currencyWarbandWindowEnabled == true) and L["Close Warband"] or L["Open Warband"])
+    end
+    RegisterRefresher(owner, CreateCheckbox(content, COLUMN_LEFT_X, -628, L["Show Realm"], function()
+        return db.currencyShowRealmInWarband == true
+    end, function(value)
+        db.currencyShowRealmInWarband = value and true or false
+        RefreshCurrencyTrackerPanel()
+    end))
+    RegisterRefresher(owner, CreateCheckbox(content, COLUMN_LEFT_X, -656, L["Track Alts Weekly"], function()
+        return db.currencyWarbandShowPreyTrack ~= false
+    end, function(value)
+        db.currencyWarbandShowPreyTrack = value and true or false
+        RefreshCurrencyTrackerPanel()
+    end))
+    RegisterRefresher(owner, CreateCheckbox(content, COLUMN_LEFT_X, -684, L["Show Prey Weekly Completed"], function()
+        return db.currencyWarbandPreyMode == "completed"
+    end, function(value)
+        db.currencyWarbandPreyMode = value and "completed" or "available"
+        RefreshCurrencyTrackerPanel()
+    end))
+    RegisterRefresher(owner, CreateCheckbox(content, COLUMN_LEFT_X, -712, L["Hide Low Level Alts (78)"], function()
+        return db.currencyWarbandHideLowLevel == true
+    end, function(value)
+        db.currencyWarbandHideLowLevel = value and true or false
+        RefreshCurrencyTrackerPanel()
+    end))
+
+    RegisterRefresher(owner, CreateSlider(content, COLUMN_RIGHT_X, -598, L["Warband Width"], 150, 900, 1, function()
+        return db.currencyWarbandWidth or 420
+    end, function(value)
+        db.currencyWarbandWidth = math.floor(value + 0.5)
+        RefreshCurrencyTrackerPanel()
+    end, function(value)
+        return tostring(math.floor(value + 0.5))
+    end))
+    RegisterRefresher(owner, CreateSlider(content, COLUMN_RIGHT_X, -650, L["Warband Height"], 140, 800, 1, function()
+        return db.currencyWarbandHeight or 250
+    end, function(value)
+        db.currencyWarbandHeight = math.floor(value + 0.5)
+        RefreshCurrencyTrackerPanel()
+    end, function(value)
+        return tostring(math.floor(value + 0.5))
+    end))
+    RegisterRefresher(owner, CreateSlider(content, COLUMN_RIGHT_X, -702, L["Warband Font Size"], 10, 24, 1, function()
+        return db.currencyWarbandFontSize or 12
+    end, function(value)
+        db.currencyWarbandFontSize = math.floor(value + 0.5)
+        RefreshCurrencyTrackerPanel()
+    end, function(value)
+        return tostring(math.floor(value + 0.5))
+    end))
+    RegisterRefresher(owner, CreateSlider(content, COLUMN_RIGHT_X, -754, L["Warband Scale"], 0.70, 1.40, 0.05, function()
+        return db.currencyWarbandScale or 1.0
+    end, function(value)
+        db.currencyWarbandScale = value
+        RefreshCurrencyTrackerPanel()
+    end, function(value)
+        return string.format("%.2f", value)
+    end))
+
+    CreateSectionTitle(content, COLUMN_LEFT_X, -798, L["Characters in Tracker"])
+    for index, entry in ipairs(knownCharacters) do
+        local level = tonumber(entry.level)
+        local levelSuffix = level and string.format(" (L%d)", level) or ""
+        local label = entry.charKey .. levelSuffix
+        local rowIndex = math.floor((index - 1) / 2)
+        local columnX = ((index - 1) % 2 == 0) and COLUMN_LEFT_X or COLUMN_RIGHT_X
+        RegisterRefresher(owner, CreateCheckbox(content, columnX, -826 - (rowIndex * 28), label, function()
+            return IsWarbandCharacterShown(entry.charKey)
+        end, function(value)
+            SetWarbandCharacterShown(entry.charKey, value and true or false)
+        end))
+    end
+    if #knownCharacters == 0 then
+        local emptyNote = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        emptyNote:SetPoint("TOPLEFT", content, "TOPLEFT", COLUMN_LEFT_X, -826)
+        emptyNote:SetWidth(300)
+        emptyNote:SetJustifyH("LEFT")
+        emptyNote:SetWordWrap(true)
+        emptyNote:SetText(L["No cached characters yet. Log into alts to populate this list."])
+    end
+
+    RegisterRefresher(owner, { PreydatorRefresh = function() UpdatePanelScrollBounds() end })
+    UpdatePanelScrollBounds()
 end
 
 local function BuildWarbandPage(owner, parent)
@@ -1758,8 +2142,16 @@ local function BuildSoundsPage(owner, parent)
     end, function(value)
         db.soundsEnabled = value and true or false
     end))
-    CreateSectionTitle(parent, COLUMN_LEFT_X, -38, L["Sound Selection"])
-    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -68, string.format(L["Stage %d Sound"], 1), 170, function()
+    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -38, L["Sound Channel"], 170, function()
+        return CHANNEL_OPTIONS
+    end, function()
+        return db.soundChannel
+    end, function(key)
+        db.soundChannel = key
+        api.NormalizeSoundSettings()
+    end))
+    CreateSectionTitle(parent, COLUMN_LEFT_X, -66, L["Sound Selection"])
+    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -96, string.format(L["Stage %d Sound"], 1), 170, function()
         return api.BuildSoundDropdownOptions()
     end, function()
         return db.stageSounds[1]
@@ -1767,7 +2159,7 @@ local function BuildSoundsPage(owner, parent)
         db.stageSounds[1] = key
         api.NormalizeSoundSettings()
     end))
-    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -122, string.format(L["Stage %d Sound"], 2), 170, function()
+    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -150, string.format(L["Stage %d Sound"], 2), 170, function()
         return api.BuildSoundDropdownOptions()
     end, function()
         return db.stageSounds[2]
@@ -1775,7 +2167,7 @@ local function BuildSoundsPage(owner, parent)
         db.stageSounds[2] = key
         api.NormalizeSoundSettings()
     end))
-    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -176, string.format(L["Stage %d Sound"], 3), 170, function()
+    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -204, string.format(L["Stage %d Sound"], 3), 170, function()
         return api.BuildSoundDropdownOptions()
     end, function()
         return db.stageSounds[3]
@@ -1783,7 +2175,7 @@ local function BuildSoundsPage(owner, parent)
         db.stageSounds[3] = key
         api.NormalizeSoundSettings()
     end))
-    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -230, string.format(L["Stage %d Sound"], 4), 170, function()
+    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -258, string.format(L["Stage %d Sound"], 4), 170, function()
         return api.BuildSoundDropdownOptions()
     end, function()
         return db.stageSounds[4]
@@ -1791,7 +2183,7 @@ local function BuildSoundsPage(owner, parent)
         db.stageSounds[4] = key
         api.NormalizeSoundSettings()
     end))
-    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -284, L["Ambush Sound"], 170, function()
+    RegisterRefresher(owner, CreateDropdown(parent, COLUMN_LEFT_X, -312, L["Ambush Sound"], 170, function()
         return api.BuildSoundDropdownOptions()
     end, function()
         return db.ambushSoundPath
@@ -1799,7 +2191,7 @@ local function BuildSoundsPage(owner, parent)
         db.ambushSoundPath = key
         api.NormalizeAmbushSettings()
     end))
-    RegisterRefresher(owner, CreateSlider(parent, COLUMN_LEFT_X, -338, L["Enhance Sounds"], 0, 100, 5, function() return db.soundEnhance or 0 end, function(value)
+    RegisterRefresher(owner, CreateSlider(parent, COLUMN_LEFT_X, -366, L["Enhance Sounds"], 0, 100, 5, function() return db.soundEnhance or 0 end, function(value)
         db.soundEnhance = math.floor(value + 0.5)
     end, function(value) return tostring(math.floor(value + 0.5)) end))
 
@@ -1835,51 +2227,54 @@ local function BuildSoundsPage(owner, parent)
         end
     end)
     CreateActionButton(parent, COLUMN_RIGHT_X, -130, 140, string.format(L["Test Stage %d"], 1), function()
-        api.GetState().stageSoundPlayed[1] = nil
         local path = api.ResolveStageSoundPath(1)
         if not path then
             print(string.format(L["Preydator: No stage %d sound configured."], 1))
             return
         end
-        if not api.TryPlayStageSound(1, true) then
+        if not api.PlayTestSound(path) then
             print(string.format(L["Preydator: Stage %d sound file failed to play. Ensure this file exists as .ogg: %s"], 1, tostring(path)))
         end
     end)
     CreateActionButton(parent, COLUMN_RIGHT_X, -160, 140, string.format(L["Test Stage %d"], 2), function()
-        api.GetState().stageSoundPlayed[2] = nil
         local path = api.ResolveStageSoundPath(2)
         if not path then
             print(string.format(L["Preydator: No stage %d sound configured."], 2))
             return
         end
-        if not api.TryPlayStageSound(2, true) then
+        if not api.PlayTestSound(path) then
             print(string.format(L["Preydator: Stage %d sound file failed to play. Ensure this file exists as .ogg: %s"], 2, tostring(path)))
         end
     end)
     CreateActionButton(parent, COLUMN_RIGHT_X, -190, 140, string.format(L["Test Stage %d"], 3), function()
-        api.GetState().stageSoundPlayed[3] = nil
         local path = api.ResolveStageSoundPath(3)
         if not path then
             print(string.format(L["Preydator: No stage %d sound configured."], 3))
             return
         end
-        if not api.TryPlayStageSound(3, true) then
+        if not api.PlayTestSound(path) then
             print(string.format(L["Preydator: Stage %d sound file failed to play. Ensure this file exists as .ogg: %s"], 3, tostring(path)))
         end
     end)
     CreateActionButton(parent, COLUMN_RIGHT_X, -220, 140, string.format(L["Test Stage %d"], 4), function()
-        api.GetState().stageSoundPlayed[4] = nil
         local path = api.ResolveStageSoundPath(4)
         if not path then
             print(string.format(L["Preydator: No stage %d sound configured."], 4))
             return
         end
-        if not api.TryPlayStageSound(4, true) then
+        if not api.PlayTestSound(path) then
             print(string.format(L["Preydator: Stage %d sound file failed to play. Ensure this file exists as .ogg: %s"], 4, tostring(path)))
         end
     end)
     CreateActionButton(parent, COLUMN_RIGHT_X, -250, 140, L["Test Ambush"], function()
-        api.TriggerAmbushAlert("Manual test", "options")
+        local path = api.ResolveAmbushSoundPath()
+        if not path then
+            print("Preydator: No ambush sound configured.")
+            return
+        end
+        if not api.PlayTestSound(path) then
+            print("Preydator: Ambush sound file failed to play. Ensure this file exists as .ogg: " .. tostring(path))
+        end
     end)
     local note = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     note:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_RIGHT_X, -286)
@@ -1986,6 +2381,8 @@ local function BuildThemePage(owner, parent)
         content:HookScript("OnSizeChanged", UpdateThemeScrollBounds)
     end
 
+    local THEME_RIGHT_X = 250
+
     -- ===== Section 1: Global Theme (left) | Per-Module Themes (right) =====
     CreateSectionTitle(content, COLUMN_LEFT_X, -10, L["Global Theme"])
 
@@ -2024,23 +2421,23 @@ local function BuildThemePage(owner, parent)
     globalNote:SetWordWrap(true)
     globalNote:SetText(L["When enabled, all panels use the global theme. Disable to set themes per-module below."])
 
-    CreateSectionTitle(content, COLUMN_RIGHT_X, -10, L["Per-Module Themes"])
+    CreateSectionTitle(content, THEME_RIGHT_X, -10, L["Per-Module Themes"])
 
-    local currencyThemeDropdown = RegisterRefresher(owner, CreateDropdown(content, COLUMN_RIGHT_X, -40, L["Currency Panel Theme"], 170, GetAllThemeOptions, function()
+    local currencyThemeDropdown = RegisterRefresher(owner, CreateDropdown(content, THEME_RIGHT_X, -40, L["Currency Panel Theme"], 170, GetAllThemeOptions, function()
         return db.currencyTheme or "brown"
     end, function(key)
         db.currencyTheme = key
         RefreshCurrencyTrackerPanel()
     end))
 
-    local huntThemeDropdown = RegisterRefresher(owner, CreateDropdown(content, COLUMN_RIGHT_X, -96, L["Hunt Table Theme"], 170, GetAllThemeOptions, function()
+    local huntThemeDropdown = RegisterRefresher(owner, CreateDropdown(content, THEME_RIGHT_X, -96, L["Hunt Table Theme"], 170, GetAllThemeOptions, function()
         return db.huntScannerTheme or "brown"
     end, function(key)
         db.huntScannerTheme = key
         RefreshHuntTrackerPanel()
     end))
 
-    local warbandThemeDropdown = RegisterRefresher(owner, CreateDropdown(content, COLUMN_RIGHT_X, -152, L["Warband Theme"], 170, GetAllThemeOptions, function()
+    local warbandThemeDropdown = RegisterRefresher(owner, CreateDropdown(content, THEME_RIGHT_X, -152, L["Warband Theme"], 170, GetAllThemeOptions, function()
         return db.currencyWarbandTheme or "brown"
     end, function(key)
         db.currencyWarbandTheme = key
@@ -2054,7 +2451,7 @@ local function BuildThemePage(owner, parent)
     perModuleNote:SetWordWrap(true)
     perModuleNote:SetText(L["Per-module themes are ignored while Global Theme is enabled."])
 
-    local achievementThemeDropdown = RegisterRefresher(owner, CreateDropdown(content, COLUMN_RIGHT_X, -218, L["Achievements Theme"], 170, GetAllThemeOptions, function()
+    local achievementThemeDropdown = RegisterRefresher(owner, CreateDropdown(content, THEME_RIGHT_X, -218, L["Achievements Theme"], 170, GetAllThemeOptions, function()
         return db.achievementTheme or "brown"
     end, function(key)
         db.achievementTheme = key
@@ -2070,13 +2467,20 @@ local function BuildThemePage(owner, parent)
         RefreshCurrencyTrackerPanel()
     end))
 
-    local themePreviewButton = CreateActionButton(content, COLUMN_LEFT_X, -286, 170, L["Theme Preview Pane"], function()
+    RegisterRefresher(owner, CreateDropdown(content, COLUMN_LEFT_X, -286, L["Theme Font"], 170, FONT_OPTIONS, function()
+        return db.themeEditorFontKey or "frizqt"
+    end, function(key)
+        db.themeEditorFontKey = key
+        ApplyThemeEditorPreviewRefresh()
+    end))
+
+    local themePreviewButton = CreateActionButton(content, THEME_RIGHT_X, -286, 170, L["Theme Preview Pane"], function()
         db.themeEditorPreviewInOptions = not (db.themeEditorPreviewInOptions == true)
         ApplyThemeEditorPreviewRefresh()
         owner:RefreshControls()
     end)
     local themePreviewState = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    themePreviewState:SetPoint("TOPLEFT", content, "TOPLEFT", COLUMN_LEFT_X + 178, -290)
+    themePreviewState:SetPoint("TOPLEFT", content, "TOPLEFT", THEME_RIGHT_X + 178, -290)
     themePreviewState:SetWidth(110)
     themePreviewState:SetJustifyH("LEFT")
     themePreviewState:SetText("")
@@ -2104,7 +2508,7 @@ local function BuildThemePage(owner, parent)
     globalThemeCheck:PreydatorRefresh()
 
     -- ===== Section 2: Custom Theme Editor =====
-    local TCOL1, TCOL2 = COLUMN_LEFT_X, 280
+    local TCOL1, TCOL2 = COLUMN_LEFT_X, THEME_RIGHT_X
 
     CreateSectionTitle(content, TCOL1, -340, L["Custom Theme Editor"])
 
@@ -2134,13 +2538,6 @@ local function BuildThemePage(owner, parent)
         db.themeEditorName = type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
     end)
 
-    RegisterRefresher(owner, CreateDropdown(content, TCOL2, -430, L["Theme Font"], 170, FONT_OPTIONS, function()
-        return db.themeEditorFontKey or "frizqt"
-    end, function(key)
-        db.themeEditorFontKey = key
-        ApplyThemeEditorPreviewRefresh()
-    end))
-
     -- 3×3 color picker grid
     local colorDefs = {
         { key = "section", label = L["Section BG"],   col = TCOL1, row = 1 },
@@ -2154,7 +2551,7 @@ local function BuildThemePage(owner, parent)
         { key = "season",  label = L["Season Color"], col = TCOL1, row = 5 },
     }
     for _, def in ipairs(colorDefs) do
-        local yPos = -470 - (def.row - 1) * 34
+        local yPos = -430 - (def.row - 1) * 34
         RegisterRefresher(owner, CreateColorButton(content, def.col, yPos, def.label, function()
             local c = db.themeEditorColors and db.themeEditorColors[def.key]
             return c or { 1, 1, 1, 1 }
@@ -2166,7 +2563,7 @@ local function BuildThemePage(owner, parent)
     end
 
     -- Save Theme button
-    CreateActionButton(content, TCOL1, -638, 120, L["Save Theme"], function()
+    CreateActionButton(content, TCOL1, -598, 120, L["Save Theme"], function()
         local name = db.themeEditorName:match("^%s*(.-)%s*$") or ""
         if #name == 0 then
             print("Preydator: " .. L["Please enter a theme name before saving."])
@@ -2199,7 +2596,7 @@ local function BuildThemePage(owner, parent)
     end)
 
     local saveNote = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    saveNote:SetPoint("TOPLEFT", content, "TOPLEFT", TCOL1 + 130, -642)
+    saveNote:SetPoint("TOPLEFT", content, "TOPLEFT", TCOL1 + 130, -602)
     saveNote:SetWidth(250)
     saveNote:SetJustifyH("LEFT")
     saveNote:SetWordWrap(false)
@@ -2221,13 +2618,13 @@ local function BuildThemePage(owner, parent)
         return opts
     end
 
-    RegisterRefresher(owner, CreateDropdown(content, TCOL1, -672, L["Delete Saved Theme"], 170, GetDeleteOptions, function()
+    RegisterRefresher(owner, CreateDropdown(content, TCOL1, -632, L["Delete Saved Theme"], 170, GetDeleteOptions, function()
         return db.themeEditorDeleteKey or (type(db.customThemeOrder) == "table" and db.customThemeOrder[1]) or "__none__"
     end, function(key)
         db.themeEditorDeleteKey = key
     end))
 
-    CreateActionButton(content, TCOL1 + 207, -700, 80, L["Delete"], function()
+    CreateActionButton(content, TCOL1 + 207, -660, 80, L["Delete"], function()
         local name = db.themeEditorDeleteKey
         if not name or name == "__none__" then return end
         if not db.customThemes or not db.customThemes[name] then return end
@@ -2284,18 +2681,254 @@ local function BuildAchievementsPage(owner, parent)
     note:SetText(L["Achievement tracking coming soon."])
 end
 
+local function BuildProfilesPage(owner, parent)
+    local PROFILE_LEFT_X = COLUMN_LEFT_X
+    local PROFILE_RIGHT_X = 258
+    local PROFILE_NOTE_WIDTH = 236
+    local PROFILE_DROPDOWN_WIDTH = 170
+    local PROFILE_BUTTON_WIDTH = 170
+
+    local function CreateProfileNote(x, y, width, text)
+        local note = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        note:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+        note:SetWidth(width)
+        note:SetJustifyH("LEFT")
+        note:SetWordWrap(true)
+        note:SetText(text)
+        return note
+    end
+
+    local function TrimProfileName(value)
+        value = tostring(value or "")
+        return (value:gsub("^%s+", ""):gsub("%s+$", ""))
+    end
+
+    local function BuildAlternateProfileOptions()
+        local active = api.GetActiveProfileName()
+        local options = {}
+        for _, name in ipairs(api.GetAllProfileNames()) do
+            if name ~= active then
+                options[#options + 1] = { key = name, text = name }
+            end
+        end
+        return options
+    end
+
+    local function ResolveAlternateProfile(currentValue)
+        local options = BuildAlternateProfileOptions()
+        for _, option in ipairs(options) do
+            if option.key == currentValue then
+                return currentValue
+            end
+        end
+        return options[1] and options[1].key or nil
+    end
+
+    parent.PreydatorCopyFromProfile = ResolveAlternateProfile(parent.PreydatorCopyFromProfile)
+    parent.PreydatorDeleteProfile = ResolveAlternateProfile(parent.PreydatorDeleteProfile)
+
+    CreateSectionTitle(parent, PROFILE_LEFT_X, -10, L["Profiles"])
+    CreateProfileNote(PROFILE_LEFT_X, -42, 500, L["Change active profile, create a new one, copy settings between profiles, reset the current profile, or delete an unused profile."])
+
+    CreateSectionTitle(parent, PROFILE_LEFT_X, -96, L["Active Profile"])
+    CreateProfileNote(PROFILE_LEFT_X, -126, PROFILE_NOTE_WIDTH, L["Switch profiles to load a different saved setup immediately."])
+
+    local activeProfileStatus = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    activeProfileStatus:SetPoint("TOPLEFT", parent, "TOPLEFT", PROFILE_LEFT_X, -154)
+    activeProfileStatus:SetJustifyH("LEFT")
+    activeProfileStatus:SetText("")
+    RegisterRefresher(owner, {
+        PreydatorRefresh = function()
+            activeProfileStatus:SetText(string.format("%s %s", L["Current Profile:"], tostring(api.GetActiveProfileName() or "Default")))
+        end,
+    })
+
+    RegisterRefresher(owner, CreateDropdown(parent, PROFILE_LEFT_X, -178, L["Current Profile"], PROFILE_DROPDOWN_WIDTH,
+        function()
+            local options = {}
+            for _, name in ipairs(api.GetAllProfileNames()) do
+                options[#options + 1] = { key = name, text = name }
+            end
+            return options
+        end,
+        function()
+            return api.GetActiveProfileName()
+        end,
+        function(key)
+            if key ~= api.GetActiveProfileName() then
+                api.SwitchToProfile(key)
+                parent.PreydatorCopyFromProfile = ResolveAlternateProfile(parent.PreydatorCopyFromProfile)
+                parent.PreydatorDeleteProfile = ResolveAlternateProfile(parent.PreydatorDeleteProfile)
+                owner:RefreshControls()
+            end
+        end
+    ))
+
+    CreateSectionTitle(parent, PROFILE_RIGHT_X, -96, L["Manage Profiles"])
+    CreateProfileNote(PROFILE_RIGHT_X, -126, PROFILE_NOTE_WIDTH, L["Reset the active profile or delete another unused profile."])
+
+    CreateActionButton(parent, PROFILE_RIGHT_X, -170, PROFILE_BUTTON_WIDTH, L["Reset to Defaults"], function()
+        api.ResetCurrentProfile()
+        owner:RefreshControls()
+    end)
+
+    local deleteDropdown = RegisterRefresher(owner, CreateDropdown(parent, PROFILE_RIGHT_X, -212, L["Delete Profile"], PROFILE_DROPDOWN_WIDTH,
+        function()
+            return BuildAlternateProfileOptions()
+        end,
+        function()
+            parent.PreydatorDeleteProfile = ResolveAlternateProfile(parent.PreydatorDeleteProfile)
+            return parent.PreydatorDeleteProfile
+        end,
+        function(key)
+            parent.PreydatorDeleteProfile = key
+        end
+    ))
+
+    local deleteButton = CreateActionButton(parent, PROFILE_RIGHT_X, -263, PROFILE_BUTTON_WIDTH, L["Delete Profile"], function()
+        local profileName = ResolveAlternateProfile(parent.PreydatorDeleteProfile)
+        if not profileName then
+            print("Preydator: " .. L["No removable profile is available."])
+            return
+        end
+        local ok, err = api.DeleteProfile(profileName)
+        if not ok then
+            print("Preydator: " .. tostring(err))
+            return
+        end
+        parent.PreydatorCopyFromProfile = ResolveAlternateProfile(parent.PreydatorCopyFromProfile)
+        parent.PreydatorDeleteProfile = ResolveAlternateProfile(parent.PreydatorDeleteProfile)
+        owner:RefreshControls()
+    end)
+
+    CreateSectionTitle(parent, PROFILE_LEFT_X, -232, L["New Profile"])
+    CreateProfileNote(PROFILE_LEFT_X, -262, PROFILE_NOTE_WIDTH, L["Enter a name and optionally copy your current settings into the new profile."])
+
+    local newNameLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    newNameLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", PROFILE_LEFT_X, -298)
+    newNameLabel:SetText(L["Profile Name:"])
+
+    local newNameEdit = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+    newNameEdit:SetSize(190, 20)
+    newNameEdit:SetAutoFocus(false)
+    newNameEdit:SetTextInsets(6, 6, 0, 0)
+    newNameEdit:SetPoint("TOPLEFT", newNameLabel, "BOTTOMLEFT", 0, -6)
+    newNameEdit:SetText("")
+    newNameEdit:SetScript("OnEnterPressed", function(self)
+        self:ClearFocus()
+    end)
+
+    newNameEdit.copyCurrentEnabled = false
+    RegisterRefresher(owner, CreateCheckbox(parent, PROFILE_LEFT_X, -344, L["Copy current settings"], function()
+        return newNameEdit.copyCurrentEnabled == true
+    end, function(value)
+        newNameEdit.copyCurrentEnabled = value and true or false
+    end))
+
+    CreateActionButton(parent, PROFILE_LEFT_X, -372, PROFILE_BUTTON_WIDTH, L["Create Profile"], function()
+        local name = TrimProfileName(newNameEdit:GetText())
+        if name == "" then
+            print("Preydator: " .. L["Please enter a profile name."])
+            return
+        end
+        local copyFrom = newNameEdit.copyCurrentEnabled and api.GetActiveProfileName() or nil
+        local ok, err = api.CreateProfile(name, copyFrom)
+        if not ok then
+            print("Preydator: " .. tostring(err))
+            return
+        end
+        api.SwitchToProfile(name)
+        newNameEdit:SetText("")
+        newNameEdit.copyCurrentEnabled = false
+        parent.PreydatorCopyFromProfile = ResolveAlternateProfile(parent.PreydatorCopyFromProfile)
+        parent.PreydatorDeleteProfile = ResolveAlternateProfile(parent.PreydatorDeleteProfile)
+        owner:RefreshControls()
+    end)
+
+    CreateSectionTitle(parent, PROFILE_RIGHT_X, -310, L["Copy From"])
+    CreateProfileNote(PROFILE_RIGHT_X, -340, PROFILE_NOTE_WIDTH, L["Copy another profile into the current one."])
+
+    local copyDropdown = RegisterRefresher(owner, CreateDropdown(parent, PROFILE_RIGHT_X, -374, L["Source Profile"], PROFILE_DROPDOWN_WIDTH,
+        function()
+            return BuildAlternateProfileOptions()
+        end,
+        function()
+            parent.PreydatorCopyFromProfile = ResolveAlternateProfile(parent.PreydatorCopyFromProfile)
+            return parent.PreydatorCopyFromProfile
+        end,
+        function(key)
+            parent.PreydatorCopyFromProfile = key
+        end
+    ))
+
+    local copyButton = CreateActionButton(parent, PROFILE_RIGHT_X, -432, PROFILE_BUTTON_WIDTH, L["Copy Into Current"], function()
+        local sourceName = ResolveAlternateProfile(parent.PreydatorCopyFromProfile)
+        if not sourceName then
+            print("Preydator: " .. L["Select a source profile first."])
+            return
+        end
+        api.CopyProfileFrom(sourceName)
+        owner:RefreshControls()
+    end)
+
+    RegisterRefresher(owner, {
+        PreydatorRefresh = function()
+            local hasAlternateProfile = ResolveAlternateProfile(parent.PreydatorCopyFromProfile) ~= nil
+            if copyButton and copyButton.SetEnabled then
+                copyButton:SetEnabled(hasAlternateProfile)
+            end
+            if copyButton then
+                copyButton:SetAlpha(hasAlternateProfile and 1 or 0.4)
+            end
+            if copyDropdown and copyDropdown.PreydatorSetEnabled then
+                copyDropdown:PreydatorSetEnabled(hasAlternateProfile)
+            end
+
+            local hasRemovableProfile = ResolveAlternateProfile(parent.PreydatorDeleteProfile) ~= nil
+            if deleteButton and deleteButton.SetEnabled then
+                deleteButton:SetEnabled(hasRemovableProfile)
+            end
+            if deleteButton then
+                deleteButton:SetAlpha(hasRemovableProfile and 1 or 0.4)
+            end
+            if deleteDropdown and deleteDropdown.PreydatorSetEnabled then
+                deleteDropdown:PreydatorSetEnabled(hasRemovableProfile)
+            end
+        end,
+    })
+end
+
 local function BuildAdvancedPage(owner, parent)
     local db = api.GetSettings()
     local defaults = api.GetDefaults()
-    
-    CreateSectionTitle(parent, COLUMN_LEFT_X, -10, L["Position Reset"])
-    CreateActionButton(parent, COLUMN_LEFT_X, -40, 180, L["Reset Bar Position"], function()
+
+    local ADV_LEFT_X = COLUMN_LEFT_X
+    local ADV_RIGHT_X = 258
+    local ADV_TEXT_WIDTH = 236
+    local ADV_BUTTON_WIDTH = 170
+
+    local function CreateAdvancedNote(x, y, text)
+        local note = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        note:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+        note:SetWidth(ADV_TEXT_WIDTH)
+        note:SetJustifyH("LEFT")
+        note:SetWordWrap(true)
+        note:SetText(text)
+        return note
+    end
+
+    -- Left column: position + maintenance
+    CreateSectionTitle(parent, ADV_LEFT_X, -10, L["Position Reset"])
+    CreateAdvancedNote(ADV_LEFT_X, -40, L["Reset frame anchors if windows are off-screen or misplaced."])
+
+    CreateActionButton(parent, ADV_LEFT_X, -78, ADV_BUTTON_WIDTH, L["Reset Bar Position"], function()
         db.barX = nil
         db.barY = nil
         api.ApplyBarSettings()
         owner:RefreshControls()
     end)
-    CreateActionButton(parent, COLUMN_LEFT_X, -68, 180, L["Reset Tracker Positions"], function()
+
+    CreateActionButton(parent, ADV_LEFT_X, -110, ADV_BUTTON_WIDTH, L["Reset Tracker Positions"], function()
         db.currencyX = nil
         db.currencyY = nil
         db.currencyWarbandX = nil
@@ -2306,9 +2939,41 @@ local function BuildAdvancedPage(owner, parent)
         RefreshHuntTrackerPanel()
         owner:RefreshControls()
     end)
-    
-    CreateSectionTitle(parent, COLUMN_RIGHT_X, -10, L["Restore / Reset"])
-    CreateActionButton(parent, COLUMN_RIGHT_X, -38, 180, L["Restore Default Names"], function()
+
+    CreateSectionTitle(parent, ADV_LEFT_X, -166, L["Maintenance"])
+    CreateAdvancedNote(ADV_LEFT_X, -196, L["Utility actions for release notes and hunt scanner cache refresh."])
+
+    CreateActionButton(parent, ADV_LEFT_X, -234, ADV_BUTTON_WIDTH, L["Show What's New"], function()
+        db.currencyWhatsNewSeenVersion = nil
+        local tracker = Preydator:GetModule("CurrencyTracker")
+        if tracker and type(tracker.ShowCurrencyWhatsNew) == "function" then
+            tracker:ShowCurrencyWhatsNew(true)
+        end
+    end)
+
+    CreateActionButton(parent, ADV_LEFT_X, -266, ADV_BUTTON_WIDTH, L["Refresh Hunt Cache"], function()
+        local huntScanner = Preydator:GetModule("HuntScanner")
+        if huntScanner and type(huntScanner.RefreshRewardCache) == "function" then
+            huntScanner:RefreshRewardCache()
+            print("Preydator: Hunt reward cache refresh queued.")
+        end
+    end)
+
+    CreateActionButton(parent, ADV_LEFT_X, -298, ADV_BUTTON_WIDTH, L["Refresh Hunt Table Now"], function()
+        local huntScanner = Preydator:GetModule("HuntScanner")
+        if huntScanner and type(huntScanner.RefreshNow) == "function" then
+            huntScanner:RefreshNow()
+        end
+    end)
+
+    CreateSectionTitle(parent, ADV_LEFT_X, -352, L["Notes"])
+    CreateAdvancedNote(ADV_LEFT_X, -382, L["HINT_ADVANCED_NOTES"])
+
+    -- Right column: restore + debug
+    CreateSectionTitle(parent, ADV_RIGHT_X, -10, L["Restore / Reset"])
+    CreateAdvancedNote(ADV_RIGHT_X, -40, L["Restore text and audio defaults, or fully reset all profile settings."])
+
+    CreateActionButton(parent, ADV_RIGHT_X, -78, ADV_BUTTON_WIDTH, L["Restore Default Names"], function()
         for stageIndex = 1, (constants.MAX_STAGE - 1) do
             db.stageLabels[stageIndex] = defaults.stageLabels[stageIndex]
         end
@@ -2318,7 +2983,8 @@ local function BuildAdvancedPage(owner, parent)
         api.UpdateBarDisplay()
         owner:RefreshControls()
     end)
-    CreateActionButton(parent, COLUMN_RIGHT_X, -66, 180, L["Restore Default Sounds"], function()
+
+    CreateActionButton(parent, ADV_RIGHT_X, -110, ADV_BUTTON_WIDTH, L["Restore Default Sounds"], function()
         db.soundsEnabled = defaults.soundsEnabled
         db.soundChannel = defaults.soundChannel
         db.soundEnhance = defaults.soundEnhance
@@ -2336,52 +3002,27 @@ local function BuildAdvancedPage(owner, parent)
         api.NormalizeAmbushSettings()
         owner:RefreshControls()
     end)
-    CreateActionButton(parent, COLUMN_RIGHT_X, -94, 180, L["Reset All Defaults"], function()
+
+    CreateActionButton(parent, ADV_RIGHT_X, -142, ADV_BUTTON_WIDTH, L["Reset All Defaults"], function()
         api.ResetAllSettings()
         owner:RefreshControls()
     end)
 
-    RegisterRefresher(owner, CreateCheckbox(parent, COLUMN_RIGHT_X, -126, L["Enable Debug"], function()
+    CreateSectionTitle(parent, ADV_RIGHT_X, -198, L["Debug"])
+    CreateAdvancedNote(ADV_RIGHT_X, -228, L["Developer logging toggles for diagnostics and currency event traces."])
+
+    RegisterRefresher(owner, CreateCheckbox(parent, ADV_RIGHT_X, -262, L["Enable Debug"], function()
         return db.debugSounds == true
     end, function(value)
         db.debugSounds = value and true or false
         _G.PreydatorDebugDB.enabled = db.debugSounds and true or false
     end))
 
-    RegisterRefresher(owner, CreateCheckbox(parent, COLUMN_RIGHT_X, -154, L["Currency Debug Events"], function()
+    RegisterRefresher(owner, CreateCheckbox(parent, ADV_RIGHT_X, -290, L["Currency Debug Events"], function()
         return db.currencyDebugEvents == true
     end, function(value)
         db.currencyDebugEvents = value and true or false
     end))
-
-    CreateActionButton(parent, COLUMN_RIGHT_X, -184, 180, L["Show What's New"], function()
-        db.currencyWhatsNewSeenVersion = nil
-        local tracker = Preydator:GetModule("CurrencyTracker")
-        if tracker and type(tracker.ShowCurrencyWhatsNew) == "function" then
-            tracker:ShowCurrencyWhatsNew(true)
-        end
-    end)
-    CreateActionButton(parent, COLUMN_RIGHT_X, -216, 180, L["Refresh Hunt Cache"], function()
-        local huntScanner = Preydator:GetModule("HuntScanner")
-        if huntScanner and type(huntScanner.RefreshRewardCache) == "function" then
-            huntScanner:RefreshRewardCache()
-            print("Preydator: Hunt reward cache refresh queued.")
-        end
-    end)
-    CreateActionButton(parent, COLUMN_RIGHT_X, -248, 180, L["Refresh Hunt Table Now"], function()
-        local huntScanner = Preydator:GetModule("HuntScanner")
-        if huntScanner and type(huntScanner.RefreshNow) == "function" then
-            huntScanner:RefreshNow()
-        end
-    end)
-
-    CreateSectionTitle(parent, COLUMN_LEFT_X, -122, L["Notes"])
-    local note = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    note:SetPoint("TOPLEFT", parent, "TOPLEFT", COLUMN_LEFT_X, -156)
-    note:SetWidth(260)
-    note:SetJustifyH("LEFT")
-    note:SetWordWrap(true)
-    note:SetText(L["HINT_ADVANCED_NOTES"])
 end
 
 function SettingsModule:RefreshControls()
@@ -2394,8 +3035,8 @@ function SettingsModule:RefreshControls()
 end
 
 function SettingsModule:BuildTabbedOptions(parent, topOffset, bottomOffset)
-    local tabLabels = { L["Modules"], L["Bar"], L["Stage Text"], L["Sounds"], L["Theme"], L["Hunt Table"], L["Currency"], L["Warband"], L["Achievements"], L["Default Settings"] }
-    
+    local tabLabels = { L["Modules"], L["Bar"], L["Stage Text"], L["Sounds"], L["Theme"], L["Panels"], L["Currency"], L["Achievements"], L["Profiles"], L["Default Settings"] }
+
     -- Build top global control strip
     local stripFrame, stripControls = BuildGlobalTopStrip(self, parent)
     for _, control in ipairs(stripControls or {}) do
@@ -2414,9 +3055,10 @@ function SettingsModule:BuildTabbedOptions(parent, topOffset, bottomOffset)
             end
         end
 
-        if tabLabels[index] == L["Currency"] or tabLabels[index] == L["Warband"] then
+        if tabLabels[index] == L["Currency"] then
             RefreshCurrencyTrackerPanel()
-        elseif tabLabels[index] == L["Hunt Table"] then
+        elseif tabLabels[index] == L["Panels"] then
+            RefreshCurrencyTrackerPanel()
             RefreshHuntTrackerPanel()
         end
     end)
@@ -2440,8 +3082,8 @@ function SettingsModule:BuildTabbedOptions(parent, topOffset, bottomOffset)
         BuildThemePage,
         BuildHuntPage,
         BuildCurrenciesPage,
-        BuildWarbandPage,
         BuildAchievementsPage,
+        BuildProfilesPage,
         BuildAdvancedPage,
     }
 

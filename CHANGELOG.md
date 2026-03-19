@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Unified V2 prey lifecycle transition emissions in core runtime via shared helpers (`EmitV2QuestAccepted`, `EmitV2QuestCleared`) so accepted/cleared payload routing is single-path logic across update-loop and bootstrap/drop flows.
+- Stage sound playback now triggers only on forward stage progression; zone-exit regressions (e.g., stage drop back to 1) no longer play a stage sound.
+- Stage state ownership moved out of `UpdateBarDisplay`: runtime now updates `state.stage` directly during prey-state updates/turn-in, preventing display refreshes from mutating lifecycle state.
+- Stage display and lifecycle payloads now consume runtime-owned stage snapshots: `UpdateBarDisplay` reads `state.stage` first, and accepted transition payloads emit stage after runtime refresh (`newStage`) instead of pre-update values.
+- Options-panel stage sound tests now use non-mutating preview playback (`TryPlaySound`) so test clicks no longer mark runtime stage one-shot flags and suppress live stage progression audio.
+- Reduced idle in-zone CPU overhead by adding adaptive polling cadence (2.0s during idle stage/progress state) and throttled active-polling eligibility rechecks.
+- Further reduced polling overhead by switching active-polling eligibility to cached zone state + recent widget activity (event-driven), removing repeated zone-gate/map resolution work from the decision path.
+- Simplified active polling retention to transition windows only (bootstrap, kill carry, edit preview, force show); normal prey-zone tracking now relies on WoW zone/widget events.
+- Added lightweight V2 transition counters in inspect output (`accepted/cleared/zone enter-exit` with suppressed counts) to speed up parity checks during in-game validation.
+- Reduced transition-counter noise and duplicate clear risk: accepted transitions are now emitted only on quest-ID change, and clear transitions are blocked if the same quest ID was already cleared (regardless of reason key).
+
+### Removed
+- Removed dead legacy ambush detection helpers from core runtime (`IsAmbushSystemMessage`, `ShouldScanAmbushChat`) after AmbushDetectorV2 ownership cutover.
+
 ## 1.7.4 - 2026-03-17
 
 ### Added

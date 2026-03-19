@@ -92,6 +92,7 @@ local function BuildInspectReport()
     local runtimeV2 = Preydator.GetModule and Preydator:GetModule("RuntimeCoordinatorV2") or nil
     local storeV2 = Preydator.GetModule and Preydator:GetModule("HuntDataStoreV2") or nil
     local customizationV2 = Preydator.GetModule and Preydator:GetModule("CustomizationStateV2") or nil
+    local weeklyCaps = Preydator.GetModule and Preydator:GetModule("WeeklyCaps") or nil
 
     local v2State = (lifecycleV2 and type(lifecycleV2.GetState) == "function") and lifecycleV2:GetState() or "<unavailable>"
     local v2Transition = (runtimeV2 and type(runtimeV2.GetLastTransition) == "function") and runtimeV2:GetLastTransition() or nil
@@ -112,6 +113,22 @@ local function BuildInspectReport()
     local warbandEnabled = (customizationV2 and type(customizationV2.IsModuleEnabled) == "function") and customizationV2:IsModuleEnabled("warband") or nil
     local achievementEnabled = (customizationV2 and type(customizationV2.IsModuleEnabled) == "function") and customizationV2:IsModuleEnabled("achievement") or nil
     local huntEnabled = (customizationV2 and type(customizationV2.IsModuleEnabled) == "function") and customizationV2:IsModuleEnabled("hunt") or nil
+    local weeklyCapsState = (weeklyCaps and type(weeklyCaps.GetDebugState) == "function") and weeklyCaps:GetDebugState() or nil
+    local weeklyNextResetEpoch = 0
+    local weeklyHardUnlocked = false
+    local weeklyNightmareUnlocked = false
+    if type(weeklyCapsState) == "table" then
+        weeklyNextResetEpoch = tonumber(weeklyCapsState.nextWeeklyResetEpoch) or 0
+        weeklyHardUnlocked = weeklyCapsState.hardUnlocked == true
+        weeklyNightmareUnlocked = weeklyCapsState.nightmareUnlocked == true
+    end
+    local transitionCounters = type(state.v2TransitionCounters) == "table" and state.v2TransitionCounters or nil
+    local acceptedCount = transitionCounters and transitionCounters.accepted or 0
+    local acceptedSuppressedCount = transitionCounters and transitionCounters.acceptedSuppressed or 0
+    local clearedCount = transitionCounters and transitionCounters.cleared or 0
+    local clearedSuppressedCount = transitionCounters and transitionCounters.clearedSuppressed or 0
+    local zoneEnteredCount = transitionCounters and transitionCounters.zoneEntered or 0
+    local zoneExitedCount = transitionCounters and transitionCounters.zoneExited or 0
 
     add("- v2 state=" .. tostring(v2State)
         .. " | lastEvent=" .. tostring(v2TransitionEvent)
@@ -119,6 +136,13 @@ local function BuildInspectReport()
         .. " | lastQuestID=" .. tostring(v2TransitionQuestID)
         .. " | activeQuestID=" .. tostring(v2ActiveQuestID)
         .. " | sourceType=" .. tostring(v2SourceType))
+    add("- v2 transitions"
+        .. " | accepted=" .. tostring(acceptedCount)
+        .. " | acceptedSuppressed=" .. tostring(acceptedSuppressedCount)
+        .. " | cleared=" .. tostring(clearedCount)
+        .. " | clearedSuppressed=" .. tostring(clearedSuppressedCount)
+        .. " | zoneEntered=" .. tostring(zoneEnteredCount)
+        .. " | zoneExited=" .. tostring(zoneExitedCount))
 
     add("- v2 customization"
         .. " | schema=" .. tostring(v2CustomizationSchema)
@@ -132,6 +156,11 @@ local function BuildInspectReport()
         .. " | warband=" .. tostring(warbandEnabled)
         .. " | achievement=" .. tostring(achievementEnabled)
         .. " | hunt=" .. tostring(huntEnabled))
+
+    add("- weekly caps"
+        .. " | nextResetEpoch=" .. tostring(weeklyNextResetEpoch)
+        .. " | hardUnlocked=" .. tostring(weeklyHardUnlocked)
+        .. " | nightmareUnlocked=" .. tostring(weeklyNightmareUnlocked))
 
     add("- settings size width=" .. tostring(settings and settings.width)
         .. " | height=" .. tostring(settings and settings.height)
