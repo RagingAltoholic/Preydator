@@ -3,9 +3,9 @@
 if GetLocale() ~= "esES" then return end
 local L = _G.PreydatorL
 
--- L["No Sign in These Fields"]   = ""
--- L["AMBUSH"]                    = ""
--- L["Scent in the Wind"]         = ""
--- L["Blood in the Shadows"]      = ""
--- L["Echoes of the Kill"]        = ""
--- L["Feast of the Fang"]         = ""
+-- L["Sin rastro en esta zona"]   = ""
+-- L["EMBOSCADA"]                    = ""
+-- L["Rastro en el Viento"]         = ""
+-- L["Sangre en las Sombras"]      = ""
+-- L["Ecos de la Muerte"]        = ""
+-- L["Festín del Colmillo"]         = ""
