@@ -155,19 +155,19 @@ local function BuildPreviewRows()
         {
             questID = nil,
             title = L["Preview: Normal Hunt"],
-            reward = "1,250 " .. L["Experience"] .. " | 45 Anguish | Preview Cache Reward",
+            reward = "1,250 " .. L["Experience"] .. " | 45 " .. L["Anguish"] .. " | " .. L["Preview Cache Reward"],
             canAccept = false,
         },
         {
             questID = nil,
             title = L["Preview: Hard Hunt"],
-            reward = "62 Anguish | 1 Voidlight Marl | Preview Trinket",
+            reward = "62 " .. L["Anguish"] .. " | 1 " .. L["Voidlight Marl"] .. " | " .. L["Preview Trinket"],
             canAccept = false,
         },
         {
             questID = nil,
             title = L["Preview: Nightmare Hunt"],
-            reward = "78 Anguish | 1 Champ. Crest | Preview Weapon",
+            reward = "78 " .. L["Anguish"] .. " | 1 " .. L["Champ. Crest"] .. " | " .. L["Preview Weapon"],
             canAccept = false,
         },
     }
@@ -755,7 +755,7 @@ local function BuildRewardSummary(questID)
                 local info = C_QuestLog.GetQuestRewardCurrencyInfo(questID, index, false)
                 if type(info) == "table" then
                     local amount = tonumber(info.quantity or info.totalRewardAmount or info.numCurrency or 0) or 0
-                    local name = info.name or info.currencyName or (info.currencyID and ("Currency " .. tostring(info.currencyID))) or nil
+                    local name = info.name or info.currencyName or (info.currencyID and (L["Currency "] .. tostring(info.currencyID))) or nil
                     local icon = info.iconFileID or info.icon or info.textureFileID or info.iconTexture or info.texture
                     local iconTag = BuildIconTag(icon)
                     if name and amount > 0 then
@@ -818,18 +818,18 @@ local function InferZoneFromCoords(x, y)
     end
 
     if x > 0.70 then
-        return "Harandar"
+        return L["Harandar"]
     end
 
     if x > 0.40 and y < 0.40 then
-        return "Voidstorm"
+        return L["Voidstorm"]
     end
 
     if y > 0.55 then
-        return "Zul'Aman"
+        return L["Zul'Aman"]
     end
 
-    return "Eversong Woods"
+    return L["Eversong Woods"]
 end
 
 local function GetAdventurePinPool()
@@ -1543,9 +1543,9 @@ local function BuildDebugSnapshotLines(snapshot)
         .. " mapVisible=" .. SafeToString(mapState.missionVisible)
 
     if type(mapState.difficultyCounts) == "table" then
-        lines[#lines + 1] = "Preydator HuntDebug: mapDiffs normal=" .. SafeToString(mapState.difficultyCounts[L["Normal"]] or 0)
-            .. " hard=" .. SafeToString(mapState.difficultyCounts[L["Hard"]] or 0)
-            .. " nightmare=" .. SafeToString(mapState.difficultyCounts[L["Nightmare"]] or 0)
+        lines[#lines + 1] = "Preydator HuntDebug: mapDiffs" .. L["normal="] .. SafeToString(mapState.difficultyCounts[L["Normal"]] or 0)
+            .. L[" hard="] .. SafeToString(mapState.difficultyCounts[L["Hard"]] or 0)
+            .. L[" nightmare="] .. SafeToString(mapState.difficultyCounts[L["Nightmare"]] or 0)
     end
 
     for index, hunt in ipairs(mapState.preview or {}) do
@@ -1600,7 +1600,7 @@ local function SendLinesToBugSack(lines)
         return false, "error handler unavailable"
     end
 
-    local header = "Preydator HuntDebug Report"
+    local header = L["Preydator HuntDebug Report"]
     local chunkSize = 1800
     local length = #payload
     local chunks = math.max(1, math.ceil(length / chunkSize))
@@ -1755,7 +1755,7 @@ local function EnsurePanel()
             end
 
             if not AcceptMapQuest(questID) then
-                print("Preydator Hunt: unable to accept this quest right now.")
+                print(L["Preydator Hunt: unable to accept this quest right now."])
             end
         end)
 
@@ -1770,7 +1770,7 @@ local function EnsurePanel()
             end
 
             if not OpenMapQuestDialog(self.PreydatorQuestID) then
-                print("Preydator Hunt: unable to open quest details from this row right now.")
+                print(L["Preydator Hunt: unable to open quest details from this row right now."])
             end
         end)
         panelRows[index] = row
@@ -2000,9 +2000,11 @@ local function RenderPanel(questRows)
 
     local settings = GetSettings() or {}
     if frame.PreydatorSubtitle then
-        local groupLabel = settings.huntScannerGroupBy or "difficulty"
-        local sortLabel = settings.huntScannerSortBy or "zone"
-        frame.PreydatorSubtitle:SetText("Group: " .. tostring(groupLabel) .. " | Sort: " .. tostring(sortLabel))
+        local groupBy = settings.huntScannerGroupBy or "difficulty"
+        local sortBy = settings.huntScannerSortBy or "zone"
+        local groupLabel = groupBy == "none" and L["None"] or (groupBy == "zone" and L["Zone"] or L["Difficulty"])
+        local sortLabel = sortBy == "title" and L["Title"] or (sortBy == "zone" and L["Zone"] or L["Difficulty"])
+        frame.PreydatorSubtitle:SetText(L["Group: "] .. tostring(groupLabel) .. " | " .. L["Sort: "] .. tostring(sortLabel))
     end
 
     if not questRows or #questRows == 0 then
@@ -2054,7 +2056,7 @@ local function RenderPanel(questRows)
                     end
 
                     if not OpenMapQuestDialog(self.PreydatorQuestID) then
-                        print("Preydator Hunt: unable to open quest details from this row right now.")
+                        print(L["Preydator Hunt: unable to open quest details from this row right now."])
                     end
                 end)
             end
@@ -2145,7 +2147,7 @@ HandleInteractionSnapshot = function()
     end)
 
     if not ok then
-        print("Preydator HuntScanner: snapshot error: " .. tostring(err))
+        print(string.format(L["Preydator HuntScanner: snapshot error: %s"], tostring(err)))
     end
 
     isHandlingSnapshot = false
@@ -2250,7 +2252,7 @@ function HuntScannerModule:PrintDebugSnapshot()
 
     local snapshot = SelectBestSnapshotForDebug()
     if not snapshot then
-        print("Preydator HuntDebug: no hunt snapshot captured yet.")
+        print(L["Preydator HuntDebug: no hunt snapshot captured yet."])
         return
     end
 
@@ -2270,16 +2272,16 @@ function HuntScannerModule:OnSlashCommand(text, rest)
         if mode == "bugsack" or mode == "bs" then
             local snapshot = SelectBestSnapshotForDebug()
             if not snapshot then
-                print("Preydator HuntDebug: no hunt snapshot captured yet.")
+                print(L["Preydator HuntDebug: no hunt snapshot captured yet."])
                 return true
             end
 
             local lines = BuildDebugSnapshotLines(snapshot)
             local sent, reason = SendLinesToBugSack(lines)
             if sent then
-                print("Preydator HuntDebug: sent to BugSack via error handler.")
+                print(L["Preydator HuntDebug: sent to BugSack via error handler."])
             else
-                print("Preydator HuntDebug: Could not send to BugSack: " .. tostring(reason))
+                print(L["Preydator HuntDebug: Could not send to BugSack: "] .. tostring(reason))
                 for _, line in ipairs(lines) do
                     print(line)
                 end
@@ -2295,7 +2297,7 @@ function HuntScannerModule:OnSlashCommand(text, rest)
         if type(lastDebugPayload) == "string" and lastDebugPayload ~= "" then
             print(lastDebugPayload)
         else
-            print("Preydator HuntDebug: no payload captured yet.")
+            print(L["Preydator HuntDebug: no payload captured yet."])
         end
         return true
     end

@@ -79,11 +79,11 @@ end
 --------------------------------------------------------------------------------
 
 local CURRENCY_ALLOW_LIST = {
-    { id = 3392, name = "Anguish", label = "Anguish", season = nil },
-    { id = 3316, name = "Voidlight Marl", label = "Voidlight", season = nil },
-    { id = 3383, name = "Adventurer Dawncrest", label = "Adv. Crest", season = "S1" },
-    { id = 3341, name = "Veteran Dawncrest", label = "Vet. Crest", season = "S1" },
-    { id = 3343, name = "Champion Dawncrest", label = "Champ. Crest", season = "S1" },
+    { id = 3392, name = L["Anguish"], label = L["Anguish"], season = nil },
+    { id = 3316, name = L["Voidlight Marl"], label = L["Voidlight"], season = nil },
+    { id = 3383, name = L["Adventurer Dawncrest"], label = L["Adv. Crest"], season = "S1" },
+    { id = 3341, name = L["Veteran Dawncrest"], label = L["Vet. Crest"], season = "S1" },
+    { id = 3343, name = L["Champion Dawncrest"], label = L["Champ. Crest"], season = "S1" },
 }
 
 local ALLOW_LIST_IDS = {}
@@ -524,7 +524,7 @@ local function LogCurrencyDebug(message)
         return
     end
 
-    print("Preydator CurrencyDebug: " .. tostring(message))
+    print(L["Preydator CurrencyDebug: "] .. tostring(message))
 end
 
 local function SnapshotCurrentCharacter()
