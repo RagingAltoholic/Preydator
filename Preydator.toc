@@ -27,6 +27,8 @@ Locales\zhCN.lua
 Locales\zhTW.lua
 
 Preydator.lua
+Core\ScriptDefer.lua
+Core\PreyWidgetRuntime.lua
 Core\SettingsRuntime.lua
 Core\SoundsRuntime.lua
 Core\PreyContextRuntime.lua
