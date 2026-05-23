@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Deferred prey state updates during `UPDATE_UI_WIDGET` / `UPDATE_ALL_UI_WIDGETS` to after the current script pass (same-frame `OnUpdate` queue via `Core/ScriptDefer.lua`) so map tooltip widget layout is not tainted (`barWidth` / `textHeight` secret-number errors during active prey hunts).
+- Removed live prey-widget frame introspection during widget events; prey progress now relies on mixin snapshot cache + quest/objective fallback.
+- Expanded prey mixin snapshot fields so progress can still update when Blizzard omits `progressState` but sends value/range/`barText`.
+
+### Changed
+
+- Extracted prey widget runtime into `Core/PreyWidgetRuntime.lua` and script deferral into `Core/ScriptDefer.lua`.
+- Consolidated top-of-file constants in `Preydator.lua` into a `CONST` table to reduce chunk local pressure.
+
 ## 2.2.10 - 2026-04-23
 
 ### Fixed

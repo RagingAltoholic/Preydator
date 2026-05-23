@@ -9,6 +9,42 @@ end
 local EventRuntime = {}
 Preydator:RegisterModule("EventRuntime", EventRuntime)
 
+local deferredPreyUpdatePending = false
+
+local function QueueDeferredPreyUpdate(ctx)
+    if deferredPreyUpdatePending then
+        return
+    end
+
+    deferredPreyUpdatePending = true
+
+    local function run()
+        deferredPreyUpdatePending = false
+        if type(ctx.updatePreyState) == "function" then
+            ctx.updatePreyState()
+        end
+        if type(ctx.setPollingActive) == "function" and type(ctx.shouldUseActivePolling) == "function" then
+            ctx.setPollingActive(ctx.shouldUseActivePolling())
+        end
+    end
+
+    -- Prefer same-frame OnUpdate deferral (see Preydator.RunAfterCurrentScriptsPass)
+    -- so tooltip widget layout is not wrong for a full frame.
+    if type(ctx.runAfterCurrentScriptsPass) == "function" then
+        ctx.runAfterCurrentScriptsPass(run)
+        return
+    end
+
+    local timer = _G and _G.C_Timer
+    if not (timer and type(timer.After) == "function") then
+        deferredPreyUpdatePending = false
+        run()
+        return
+    end
+
+    timer.After(0, run)
+end
+
 function EventRuntime:HandleEvent(event, arg1, arg2, ctx)
     if type(ctx) ~= "table" then
         return false
@@ -172,22 +208,9 @@ function EventRuntime:HandleEvent(event, arg1, arg2, ctx)
         or event == "QUEST_TURNED_IN"
         or event == "QUEST_REMOVED"
 
-    if isNoisyEvent then
-        now = type(ctx.getTime) == "function" and ctx.getTime() or 0
-        local hasPreyContext = state.activeQuestID or (now < (state.killStageUntil or 0))
-        local outOfZoneQuestIdle = type(ctx.isValidQuestID) == "function"
-            and ctx.isValidQuestID(state.activeQuestID)
-            and state.inPreyZone == false
-            and not (now < (state.killStageUntil or 0))
-            and not (now < (state.ambushAlertUntil or 0))
-            and not (now < (state.bloodyCommandAlertUntil or 0))
-        if (not isRestrictedInstance)
-            and hasPreyContext
-            and not outOfZoneQuestIdle
-            and type(ctx.runModuleHook) == "function" then
-            ctx.runModuleHook("OnEvent", event, arg1, arg2)
-        end
-    else
+    -- Skip module OnEvent fanout during noisy widget bursts: addons run during
+    -- UPDATE_UI_WIDGET can taint Blizzard's immediate tooltip/widget layout.
+    if not isNoisyEvent then
         if (not (isRestrictedInstance and isPreySignalEvent)) and type(ctx.runModuleHook) == "function" then
             ctx.runModuleHook("OnEvent", event, arg1, arg2)
         end
@@ -324,11 +347,15 @@ function EventRuntime:HandleEvent(event, arg1, arg2, ctx)
         return true
     end
 
-    if type(ctx.updatePreyState) == "function" then
-        ctx.updatePreyState()
-    end
-    if type(ctx.setPollingActive) == "function" and type(ctx.shouldUseActivePolling) == "function" then
-        ctx.setPollingActive(ctx.shouldUseActivePolling())
+    if isNoisyEvent then
+        QueueDeferredPreyUpdate(ctx)
+    else
+        if type(ctx.updatePreyState) == "function" then
+            ctx.updatePreyState()
+        end
+        if type(ctx.setPollingActive) == "function" and type(ctx.shouldUseActivePolling) == "function" then
+            ctx.setPollingActive(ctx.shouldUseActivePolling())
+        end
     end
 
     return true
