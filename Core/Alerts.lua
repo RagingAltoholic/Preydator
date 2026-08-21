@@ -167,7 +167,6 @@ local function ShouldScanAmbushChat(ctx)
     end
 
     if state.activeQuestID ~= liveQuestID then
-        state.zoneCacheDirty = true
         if ctx.isValidQuestID(state.activeQuestID) then
             return false
         end
@@ -177,7 +176,7 @@ local function ShouldScanAmbushChat(ctx)
         return false
     end
 
-    if state.zoneCacheDirty == true or state.inPreyZone == nil then
+    if state.inPreyZone == nil then
         ctx.refreshInPreyZoneStatus(liveQuestID, true)
     end
 

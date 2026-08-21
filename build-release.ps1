@@ -28,7 +28,9 @@ $stagingAddonDir = Join-Path $stagingDir $addonName
 try {
     New-Item -ItemType Directory -Path $stagingAddonDir -Force | Out-Null
 
-    $releaseInclude = @(
+    # Stable release group: this is the only set of files/folders allowed into the
+    # packaged addon zip for the clean release path.
+    $stableReleaseGroup = @(
         "Preydator.toc",
         "Preydator.lua",
         "README.md",
@@ -40,7 +42,7 @@ try {
         "sounds"
     )
 
-    foreach ($entry in $releaseInclude) {
+    foreach ($entry in $stableReleaseGroup) {
         $sourcePath = Join-Path $addonRoot $entry
         if (-not (Test-Path -LiteralPath $sourcePath)) {
             throw ("Release include is missing: {0}" -f $entry)

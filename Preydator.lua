@@ -730,9 +730,8 @@ local state = {
     killStageUntil = 0,
     stage = 1,
     preyZoneName = nil,
-    preyZoneMapID = nil,
-    confirmedPreyZoneMapID = nil,
     inPreyZone = nil,
+    lastPlayerMapID = nil,
     preyTooltipText = nil,
     elapsedSinceUpdate = 0,
     lastWidgetSeenAt = 0,
@@ -756,9 +755,6 @@ local state = {
     questListenUntil = 0,
     cachedActivePreyQuestID = nil,
     cachedActivePreyQuestAt = 0,
-    playerMapID = nil,
-    playerMapHierarchy = nil,
-    zoneCacheDirty = true,
     pollingActive = false,
     nextPollingEligibilityCheckAt = 0,
     pendingWidgetSuppressionAfterCombat = false,
@@ -1533,58 +1529,30 @@ local function IsPreyQuestOnCurrentMap(questID)
     return info.isOnMap == true
 end
 
+local function SyncInPreyZoneState(questID)
+    local inPreyZone = IsPreyQuestOnCurrentMap(questID)
+    state.inPreyZone = inPreyZone
+    return inPreyZone
+end
+
 local function RefreshInPreyZoneStatus(questID, force)
     local runtime = GetRuntimeModule("PreyContextRuntime")
     if runtime and type(runtime.RefreshInPreyZoneStatus) == "function" then
         if not IsValidQuestID(questID) and ((state.questListenUntil or 0) <= (GetTime and GetTime() or 0)) then
             state.inPreyZone = nil
             state.preyZoneName = nil
-            state.preyZoneMapID = nil
-            state.confirmedPreyZoneMapID = nil
-            state.zoneCacheDirty = false
             return nil
         end
 
-        return runtime:RefreshInPreyZoneStatus(questID, force, state, {
+        local result = runtime:RefreshInPreyZoneStatus(questID, force, state, {
             isValidQuestID = IsValidQuestID,
             getTime = GetTime,
-            mapApi = C_Map,
             questLog = C_QuestLog,
-            taskQuestApi = C_TaskQuest,
-            isTrackedPreyWidgetShown = function()
-                return IsAnyTrackedPreyWidgetShown()
-            end,
-            isTrackedPreyWidgetPresent = function()
-                if preyHuntIconFrame ~= nil then
-                    return true
-                end
-
-                for frameRef in pairs(PREY_WIDGET_FRAMES) do
-                    if frameRef ~= nil then
-                        return true
-                    end
-                end
-
-                return false
-            end,
-            getQuestZoneMapIDFromHuntScanner = function(numericQuestID)
-                if not IsValidQuestID(numericQuestID) then
-                    return nil
-                end
-
-                local huntScanner = Preydator and Preydator.GetModule and Preydator:GetModule("HuntScanner")
-                if not (huntScanner and type(huntScanner.GetQuestZoneMapID) == "function") then
-                    return nil
-                end
-
-                local okMapID, rawMapID = pcall(huntScanner.GetQuestZoneMapID, huntScanner, numericQuestID)
-                if not okMapID then
-                    return nil
-                end
-
-                return CanonicalizeFallbackMapID(rawMapID)
-            end,
         })
+        if result ~= nil then
+            state.inPreyZone = result
+        end
+        return result
     end
 
     if not IsValidQuestID(questID) then
@@ -1592,93 +1560,14 @@ local function RefreshInPreyZoneStatus(questID, force)
         if ((state.questListenUntil or 0) <= now) then
             state.inPreyZone = nil
             state.preyZoneName = nil
-            state.preyZoneMapID = nil
-            state.confirmedPreyZoneMapID = nil
-            state.zoneCacheDirty = false
             return nil
         end
     end
 
+    -- Only Blizzard's quest-log isOnMap is authoritative for the bar.
+    -- Any mapID / zoneID fallback path has been intentionally removed.
     local now = GetTime and GetTime() or 0
-
-    local shouldRefresh = force == true
-        or state.inPreyZone == nil
-        or state.inPreyZone == false
-        or state.zoneCacheDirty == true
-    if not shouldRefresh then
-        return state.inPreyZone
-    end
-
-    local playerMapID = nil
-    if C_Map and C_Map.GetBestMapForUnit then
-        local okMapID, rawMapID = pcall(C_Map.GetBestMapForUnit, "player")
-        if okMapID then
-            local parsedMapID = nil
-            local okMapString, mapAsString = pcall(tostring, rawMapID)
-            if okMapString and type(mapAsString) == "string" then
-                local numericToken = string.match(mapAsString, "^%s*([%+%-]?%d+%.?%d*)%s*$")
-                    or string.match(mapAsString, "^%s*([%+%-]?%d*%.%d+)%s*$")
-                if numericToken then
-                    local okNumber, numericValue = pcall(tonumber, numericToken)
-                    if okNumber and type(numericValue) == "number" then
-                        parsedMapID = numericValue
-                    end
-                end
-            end
-            playerMapID = CanonicalizeFallbackMapID(parsedMapID)
-        end
-    end
-
-    local questMapID = CanonicalizeFallbackMapID(state.preyZoneMapID)
-    if not questMapID then
-        local zoneName, resolvedMapID = GetPreyZoneInfo(questID)
-        if zoneName ~= nil then
-            state.preyZoneName = zoneName
-        end
-        if resolvedMapID ~= nil then
-            state.preyZoneMapID = resolvedMapID
-            questMapID = CanonicalizeFallbackMapID(resolvedMapID)
-        end
-    end
-
-    if not questMapID then
-        if IsValidQuestID(questID) then
-            local huntScanner = Preydator and Preydator.GetModule and Preydator:GetModule("HuntScanner")
-            if huntScanner and type(huntScanner.GetQuestZoneMapID) == "function" then
-                local okMapID, rawMapID = pcall(huntScanner.GetQuestZoneMapID, huntScanner, questID)
-                if okMapID then
-                    local scannerMapID = CanonicalizeFallbackMapID(rawMapID)
-                    if scannerMapID then
-                        questMapID = scannerMapID
-                        state.preyZoneMapID = scannerMapID
-                    end
-                end
-            end
-        end
-    end
-
-    if not questMapID then
-        questMapID = CanonicalizeFallbackMapID(state.confirmedPreyZoneMapID)
-    end
-
-    -- Do not infer quest zone from the current player map when quest-map APIs
-    -- are unresolved. This can incorrectly mark in-zone when the player is in a
-    -- different prey zone than the active quest.
-
-    local inPreyZone = nil
-    if questMapID and playerMapID then
-        inPreyZone = (playerMapID == questMapID)
-    end
-
-    if inPreyZone == true then
-        state.confirmedPreyZoneMapID = questMapID
-    end
-
-    state.playerMapID = nil
-    state.playerMapHierarchy = nil
-    state.zoneCacheDirty = false
-
-    state.inPreyZone = inPreyZone
+    local inPreyZone = SyncInPreyZoneState(questID)
     state.lastZoneStatusRefreshAt = now
     return inPreyZone
 end
@@ -1763,6 +1652,11 @@ local function ShouldScanPreyRuntimeNow()
 
     if type(IsQuestStillActive) ~= "function" then
         return ((state and state.questListenUntil) or 0) > now
+    end
+
+    if IsValidQuestID(state and state.activeQuestID) and not IsQuestStillActive(state.activeQuestID) then
+        ClearTrackedPreyQuestState()
+        return false
     end
 
     if IsValidQuestID(state and state.activeQuestID) and IsQuestStillActive(state.activeQuestID) then
@@ -2112,10 +2006,30 @@ local function IsQuestStillActive(questID)
     end
 
     if C_QuestLog and C_QuestLog.IsOnQuest then
-        return C_QuestLog.IsOnQuest(questID) and true or false
+        local okOnQuest, isOnQuest = pcall(C_QuestLog.IsOnQuest, questID)
+        if okOnQuest and isOnQuest == true then
+            return true
+        end
     end
 
-    return true
+    if C_QuestLog
+        and type(C_QuestLog.GetLogIndexForQuestID) == "function"
+        and type(C_QuestLog.GetInfo) == "function" then
+        local okIndex, logIndex = pcall(C_QuestLog.GetLogIndexForQuestID, questID)
+        if okIndex and type(logIndex) == "number" and logIndex > 0 then
+            local okInfo, info = pcall(C_QuestLog.GetInfo, logIndex)
+            if okInfo and type(info) == "table" then
+                if info.isOnQuest == true then
+                    return true
+                end
+                if info.questID == questID and info.isHeader == false then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
 end
 
 IsValidQuestID = function(questID)
@@ -2970,14 +2884,15 @@ OpenOptionsPanel = function()
     end
 end
 
-local function ClearPreyStateAndDisplay()
+local function ClearTrackedPreyQuestState()
     state.activeQuestID = nil
+    state.cachedActivePreyQuestID = nil
+    state.cachedActivePreyQuestAt = 0
     state.progressState = nil
-    state.progressPercent = 0
+    state.progressPercent = nil
     state.preyZoneName = nil
-    state.preyZoneMapID = nil
-    state.confirmedPreyZoneMapID = nil
     state.inPreyZone = nil
+    state.lastPlayerMapID = nil
     state.preyTooltipText = nil
     state.stage = 1
     state.killStageUntil = 0
@@ -2998,7 +2913,10 @@ local function ClearPreyStateAndDisplay()
     state.bloodyCommandAlertUntil = 0
     state.bloodyCommandSourceName = nil
     state.lastBloodyCommandSpellID = nil
+end
 
+local function ClearPreyStateAndDisplay()
+    ClearTrackedPreyQuestState()
     if UI.barFill then
         UI.barFill:SetWidth(0)
     end
@@ -3527,8 +3445,7 @@ local function EnsurePreyHuntMixinSuppressionHook()
             preyWidgetInfoCache = snapshot
         end
 
-        -- Setup indicates widget freshness; defer all bar/zone work to next frame.
-        state.zoneCacheDirty = true
+        -- Setup indicates widget freshness; defer all bar/zone work to the next frame.
         RequestDeferredPreyRefresh()
 
         -- NOTE: Do NOT call ApplyWidgetFrameSuppression() here. Calling protected
@@ -4007,6 +3924,12 @@ FindPreyWidgetProgressState = function(activeQuestID)
 end
 
 local function ResetStateForNewQuest(questID, forceReset)
+    local sameQuest = IsValidQuestID(state.activeQuestID) and state.activeQuestID == questID
+    if sameQuest and forceReset ~= true then
+        RefreshInPreyZoneStatus(questID, false)
+        return
+    end
+
     if forceReset == true or state.activeQuestID ~= questID then
         local cachedWidgetQuestID = CoerceSanitizedNumber(state.lastWidgetBoundQuestID)
             or CoerceSanitizedNumber(preyWidgetInfoCache and preyWidgetInfoCache.questID)
@@ -4027,20 +3950,7 @@ local function ResetStateForNewQuest(questID, forceReset)
         state.stageSoundPlayed = {}
         state.stageSoundAttempted = {}
         state.stage = 1
-        local runtime = GetRuntimeModule("PreyContextRuntime")
-        if runtime and type(runtime.GetPreyZoneInfo) == "function" then
-            state.preyZoneName, state.preyZoneMapID = runtime:GetPreyZoneInfo(questID, {
-                taskQuestApi = C_TaskQuest,
-                mapApi = C_Map,
-                questLog = C_QuestLog,
-            })
-        else
-            state.preyZoneName = nil
-            state.preyZoneMapID = nil
-        end
-        state.inPreyZone = nil
-        state.confirmedPreyZoneMapID = nil
-        state.zoneCacheDirty = true
+        state.preyZoneName = nil
         RefreshInPreyZoneStatus(questID, true)
         state.preyTooltipText = nil
         state.preyTargetName, state.preyTargetDifficulty = ExtractPreyTargetFromQuestTitle(questID)
@@ -4053,12 +3963,17 @@ local function ResetStateForNewQuest(questID, forceReset)
 end
 
 UpdatePreyState = function()
+    local liveQuestID = GetCurrentActivePreyQuestCached(0)
+    if IsValidQuestID(liveQuestID) and not IsValidQuestID(state and state.activeQuestID) then
+        state.activeQuestID = liveQuestID
+    end
+
     if not ShouldScanPreyRuntimeNow() then
-        state.inPreyZone = nil
+        if not IsValidQuestID(state and state.activeQuestID) then
+            state.inPreyZone = nil
+            state.lastPlayerMapID = nil
+        end
         state.preyZoneName = nil
-        state.preyZoneMapID = nil
-        state.confirmedPreyZoneMapID = nil
-        state.zoneCacheDirty = false
         state.preyTooltipText = nil
         state.progressState = nil
         state.progressPercent = nil
@@ -4070,9 +3985,15 @@ UpdatePreyState = function()
     end
 
     local now = GetTime and GetTime() or 0
+    local trackedQuestID = IsValidQuestID(state.activeQuestID) and state.activeQuestID or nil
+    if trackedQuestID and not IsQuestStillActive(trackedQuestID) then
+        ClearTrackedPreyQuestState()
+        UpdateBarDisplay()
+        return
+    end
+
     local questID = GetCurrentActivePreyQuestCached(0)
     local hasActiveQuest = IsValidQuestID(questID)
-    local trackedQuestID = IsValidQuestID(state.activeQuestID) and state.activeQuestID or nil
     local forceKillStage = (state.killStageUntil or 0) > now
     local forceAmbushAlert = (state.ambushAlertUntil or 0) > now
     local enteredPreyZoneThisPass = false
@@ -4107,12 +4028,43 @@ UpdatePreyState = function()
 
     if hasActiveQuest then
         ResetStateForNewQuest(questID)
-        local inZoneBeforeRefresh = state.inPreyZone == true
-        RefreshInPreyZoneStatus(questID, false)
-        enteredPreyZoneThisPass = (state.inPreyZone == true and not inZoneBeforeRefresh)
 
-        -- While out of prey zone, skip expensive widget/objective scans.
-        if state.inPreyZone == false and not forceKillStage and not forceAmbushAlert then
+        local playerMapID = nil
+        if C_Map and type(C_Map.GetBestMapForUnit) == "function" then
+            local okMap, rawMapID = pcall(C_Map.GetBestMapForUnit, "player")
+            if okMap then
+                playerMapID = tonumber(rawMapID) or nil
+            end
+        end
+        local playerMapChanged = playerMapID ~= nil and state.lastPlayerMapID ~= nil and playerMapID ~= state.lastPlayerMapID
+        if playerMapChanged then
+            state.inPreyZone = nil
+        end
+        state.lastPlayerMapID = playerMapID
+
+        local inZoneBeforeRefresh = state.inPreyZone == true
+        local liveInPreyZone = RefreshInPreyZoneStatus(questID, playerMapChanged == true or false)
+        if liveInPreyZone ~= nil then
+            state.inPreyZone = liveInPreyZone
+        end
+        local effectiveInPreyZone = (liveInPreyZone ~= nil) and liveInPreyZone or state.inPreyZone
+        enteredPreyZoneThisPass = (effectiveInPreyZone == true and not inZoneBeforeRefresh)
+
+        -- A valid active quest that is currently on map must not stay stuck with a nil
+        -- progress state. Clear the widget snapshot cache so the next pass rehydrates
+        -- from the live objective/widget state instead of treating the quest as fresh
+        -- but unresolved. Do not allow a stale local `state.inPreyZone` value to keep
+        -- this path suppressed after a fresh true `isOnMap` read.
+        if effectiveInPreyZone == true and state.progressState == nil and IsQuestStillActive(questID) then
+            state.progressState = 1
+            preyWidgetInfoCache = nil
+            state.lastWidgetSeenAt = 0
+            state.lastWidgetBoundQuestID = nil
+        end
+
+        -- While out of prey zone, skip expensive widget/objective scans. Use the
+        -- fresh live quest-log answer as the authority, not a stale local mirror.
+        if effectiveInPreyZone == false and not forceKillStage and not forceAmbushAlert then
             state.lastPercentSource = "none"
             state.preyTooltipText = nil
             ApplyDefaultPreyIconVisibility()
@@ -4215,10 +4167,19 @@ UpdatePreyState = function()
                 newProgressState = PREY_PROGRESS_FINAL
             elseif firstDone then
                 newProgressState = 1
+            elseif effectiveInPreyZone == true then
+                -- A valid active prey quest in-zone is still live even before the
+                -- widget has reported progress. Keep it in the active stage instead of
+                -- letting it collapse to nil/unknown and the bar reset back to stage 1.
+                newProgressState = 1
             else
                 newProgressState = 0
             end
         end
+    end
+
+    if state.progressState == nil and effectiveInPreyZone == true and hasActiveQuest and IsQuestStillActive(questID) then
+        state.progressState = 1
     end
 
     if newProgressState ~= nil then
@@ -4267,7 +4228,7 @@ UpdatePreyState = function()
     local newStage = GetStageFromState(state.progressState)
     state.stage = newStage
 
-    local canPlayFinalStageSound = (state.inPreyZone == true)
+    local canPlayFinalStageSound = (effectiveInPreyZone == true)
         or forceKillStage
         or questCompleted
 
@@ -4275,7 +4236,7 @@ UpdatePreyState = function()
     if stageChanged and (newStage ~= MAX_STAGE or canPlayFinalStageSound) then
         TryPlayStageSound(newStage)
     elseif enteredPreyZoneThisPass
-        and state.inPreyZone == true
+        and effectiveInPreyZone == true
         and not state.stageSoundPlayed[newStage]
         and not state.stageSoundAttempted[newStage]
     then
@@ -4325,9 +4286,12 @@ function Preydator:ShouldUseActivePolling()
     end
 
     local now = GetTime and GetTime() or 0
+    local liveQuestID = GetCurrentActivePreyQuestCached(ACTIVE_PREY_QUEST_CACHE_SECONDS)
+    if IsValidQuestID(liveQuestID) and not IsValidQuestID(state and state.activeQuestID) then
+        state.activeQuestID = liveQuestID
+    end
     local trackedQuestID = state and state.activeQuestID or nil
     local hasTrackedQuest = IsValidQuestID(trackedQuestID) and IsQuestStillActive(trackedQuestID)
-    local liveQuestID = GetCurrentActivePreyQuestCached(ACTIVE_PREY_QUEST_CACHE_SECONDS)
     local hasLiveQuest = IsValidQuestID(liveQuestID) and IsQuestStillActive(liveQuestID)
     local needsQuestBootstrap = hasLiveQuest and not hasTrackedQuest
     local needsStaleQuestCleanup = IsValidQuestID(trackedQuestID) and not hasTrackedQuest and not hasLiveQuest
@@ -4342,7 +4306,47 @@ function Preydator:ShouldUseActivePolling()
         and editModeFrame.IsShown
         and editModeFrame:IsShown()
     local forceShowBar = state and state.forceShowBar == true
-    local hasHotQuestContext = hasTrackedQuest and state and state.inPreyZone == true
+
+    -- The live quest-log isOnMap answer is the only authoritative signal for the bar.
+    -- A stale false state should not keep the transition window alive forever; after a fresh false
+    -- result we keep polling only briefly so we can catch the next true transition, but we do not
+    -- keep re-arming the window based on a sticky false value.
+    local activeQuestForZoneCheck = trackedQuestID or liveQuestID
+    local liveZoneResult = nil
+    if IsValidQuestID(activeQuestForZoneCheck) then
+        liveZoneResult = IsPreyQuestOnCurrentMap(activeQuestForZoneCheck)
+        if liveZoneResult ~= nil then
+            state.inPreyZone = liveZoneResult
+        end
+    end
+
+    local lastZoneStatusRefreshAt = state and state.lastZoneStatusRefreshAt or 0
+    local zoneRefreshAgeSeconds = now - lastZoneStatusRefreshAt
+    local recentFalseZoneRead = liveZoneResult == false and zoneRefreshAgeSeconds <= 3.0
+
+    local hasHotQuestContext = hasTrackedQuest and liveZoneResult == true
+    local hasActiveQuestTransitionWindow = false
+
+    if liveZoneResult == true then
+        hasHotQuestContext = true
+        hasActiveQuestTransitionWindow = false
+    elseif liveZoneResult == false then
+        hasHotQuestContext = false
+        hasActiveQuestTransitionWindow = (hasTrackedQuest or hasLiveQuest) and recentFalseZoneRead
+    elseif state and state.inPreyZone == nil then
+        hasActiveQuestTransitionWindow = (hasTrackedQuest or hasLiveQuest) and false
+    end
+
+    if (hasActiveQuestTransitionWindow or liveZoneResult ~= nil) and type(AddDebugLog) == "function" then
+        AddDebugLog("PollingGate",
+            "activeQuestTransitionWindow=" .. tostring(hasActiveQuestTransitionWindow)
+                .. " | tracked=" .. tostring(hasTrackedQuest)
+                .. " | live=" .. tostring(hasLiveQuest)
+                .. " | liveZoneResult=" .. tostring(liveZoneResult)
+                .. " | stateInPreyZone=" .. tostring(state and state.inPreyZone)
+                .. " | questListenBurst=" .. tostring(inQuestListenBurst),
+            false)
+    end
 
     return needsQuestBootstrap
         or needsStaleQuestCleanup
@@ -4353,6 +4357,7 @@ function Preydator:ShouldUseActivePolling()
         or inEditPreview
         or forceShowBar
         or hasHotQuestContext
+        or hasActiveQuestTransitionWindow
 end
 
 function Preydator:SetPollingActive(enabled)
@@ -4382,6 +4387,10 @@ function Preydator:SetPollingActive(enabled)
         frame:SetScript("OnUpdate", function(_, elapsed)
             state.elapsedSinceUpdate = (state.elapsedSinceUpdate or 0) + (elapsed or 0)
             local now = GetTime and GetTime() or 0
+            local liveQuestID = GetCurrentActivePreyQuestCached(ACTIVE_PREY_QUEST_CACHE_SECONDS)
+            if IsValidQuestID(liveQuestID) and not IsValidQuestID(state and state.activeQuestID) then
+                state.activeQuestID = liveQuestID
+            end
             local inKillCarry = ((state and state.killStageUntil) or 0) > now
             local inAmbushAlert = ((state and state.ambushAlertUntil) or 0) > now
             local inBloodyCommandAlert = ((state and state.bloodyCommandAlertUntil) or 0) > now
@@ -6016,6 +6025,7 @@ state.coreAlwaysEvents = {
 state.corePreyRuntimeEvents = {
     "UPDATE_UI_WIDGET",
     "UPDATE_ALL_UI_WIDGETS",
+    "QUEST_LOG_UPDATE",
     "QUEST_TURNED_IN",
     "QUEST_REMOVED",
     "CHAT_MSG_SYSTEM",
@@ -6026,6 +6036,7 @@ state.corePreyRuntimeEvents = {
     "PLAYER_INTERACTION_MANAGER_FRAME_SHOW",
     "QUEST_DETAIL",
     "NAME_PLATE_UNIT_ADDED",
+    "PLAYER_ENTERING_WORLD",
     "ZONE_CHANGED",
     "ZONE_CHANGED_INDOORS",
     "ZONE_CHANGED_NEW_AREA",
@@ -6044,8 +6055,14 @@ function Preydator:SetCorePreyRuntimeEventsRegistered(enabled)
 end
 
 function Preydator:ShouldEnableCorePreyRuntimeEvents()
+    -- Map-entry and subzone transitions are low-noise but high-value signals for the
+    -- prey bar.  If we disable them while the active quest is temporarily not yet
+    -- tracked or the quest cache has a brief lag, the bar never refreshes until some
+    -- unrelated world-quest event happens to re-arm the runtime.  Keep the zone
+    -- listeners alive so a portal, instance re-entry, or subzone transition can
+    -- always re-evaluate the live quest-log isOnMap result.
     local trackedQuestID = state and state.activeQuestID or nil
-    if IsValidQuestID(trackedQuestID) and IsQuestStillActive(trackedQuestID) then
+    if IsValidQuestID(trackedQuestID) then
         return true
     end
 
@@ -6054,7 +6071,12 @@ function Preydator:ShouldEnableCorePreyRuntimeEvents()
         return true
     end
 
-    return false
+    local now = GetTime and GetTime() or 0
+    if ((state and state.questListenUntil) or 0) > now then
+        return true
+    end
+
+    return true
 end
 
 function Preydator:SyncCorePreyRuntimeEvents()
@@ -6115,6 +6137,9 @@ frame:SetScript("OnEvent", function(_, event, arg1, arg2)
             clearPreyWidgetInfoCache = function()
                 preyWidgetInfoCache = nil
                 state.progressState = nil
+            end,
+            clearTrackedPreyQuestState = function()
+                ClearTrackedPreyQuestState()
             end,
         })
         Preydator:SyncCorePreyRuntimeEvents()

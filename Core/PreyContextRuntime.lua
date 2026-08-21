@@ -179,43 +179,21 @@ function PreyContextRuntime:IsPreyQuestOnCurrentMap(questID, ctx)
         return nil
     end
 
-    -- Prefer explicit map ID matching when available.
-    local expectedMapID = ResolveExpectedQuestMapID(numericQuestID, ctx)
-    local mapApi = ctx and ctx.mapApi
     local questLog = ctx and ctx.questLog
-    local playerMapID = nil
-    if mapApi and type(mapApi.GetBestMapForUnit) == "function" then
-        local okMapID, rawMapID = pcall(mapApi.GetBestMapForUnit, "player")
-        if okMapID then
-            local parsedMapID = nil
-            local okMapString, mapAsString = pcall(tostring, rawMapID)
-            if okMapString and type(mapAsString) == "string" then
-                local numericToken = string.match(mapAsString, "^%s*([%+%-]?%d+%.?%d*)%s*$")
-                    or string.match(mapAsString, "^%s*([%+%-]?%d*%.%d+)%s*$")
-                if numericToken then
-                    local okNumber, numericValue = pcall(tonumber, numericToken)
-                    if okNumber and type(numericValue) == "number" then
-                        parsedMapID = numericValue
-                    end
-                end
+    if questLog and type(questLog.GetLogIndexForQuestID) == "function" and type(questLog.GetInfo) == "function" then
+        local logIndex = questLog.GetLogIndexForQuestID(numericQuestID)
+        if logIndex then
+            local okInfo, info = pcall(questLog.GetInfo, logIndex)
+            if okInfo and type(info) == "table" and info.isOnMap ~= nil then
+                -- Blizzard's quest-log answer is the sole source of truth for this bar.
+                -- We intentionally do not infer zone state from map IDs or zone IDs.
+                return info.isOnMap == true
             end
-            playerMapID = CanonicalizeMapID(parsedMapID)
         end
     end
 
-    if expectedMapID ~= nil then
-        if playerMapID and playerMapID == expectedMapID then
-            return true
-        else
-            return false
-        end
-    end
-
-    -- No reliable zone map ID available yet (common during reload/login races).
-    -- Return nil (unknown) instead of false so callers do not hard-mark the player
-    -- out of zone before widget/mixin signals have a chance to initialize.
-    -- We still never fall back to isOnMap because that flag is true across the
-    -- world map hierarchy and causes cross-zone false positives.
+    -- No authoritative isOnMap answer yet. Keep the state unknown instead of
+    -- fabricating a false or true result from map fallbacks.
     return nil
 end
 
@@ -271,7 +249,9 @@ local function ResolveWidgetCertifiedQuestMapID(questID, state, playerMapID, ctx
 
     if not hasVisibleTrackedWidget then
         local questLog = ctx and ctx.questLog
-        if not (questLog and type(questLog.GetLogIndexForQuestID) == "function" and type(questLog.GetInfo) == "function") then
+        if not (questLog
+            and type(questLog.GetLogIndexForQuestID) == "function"
+            and type(questLog.GetInfo) == "function") then
             return nil
         end
 
@@ -303,74 +283,31 @@ function PreyContextRuntime:RefreshInPreyZoneStatus(questID, force, state, ctx)
     local getTime = ctx and ctx.getTime
     local now = (type(getTime) == "function" and getTime()) or 0
 
+    local refreshIntervalSeconds = 2.0
+    local staleZoneRefresh = isValidQuestID(questID)
+        and (now - (state.lastZoneStatusRefreshAt or 0)) > refreshIntervalSeconds
     local shouldRefresh = force == true
         or state.inPreyZone == nil
         or state.inPreyZone == false
-        or state.zoneCacheDirty == true
+        or staleZoneRefresh
     if not shouldRefresh then
         return state.inPreyZone
     end
 
-    local mapApi = ctx and ctx.mapApi
-    local playerMapID = nil
-    if mapApi and type(mapApi.GetBestMapForUnit) == "function" then
-        local okMapID, rawMapID = pcall(mapApi.GetBestMapForUnit, "player")
-        if okMapID then
-            local parsedMapID = nil
-            local okMapString, mapAsString = pcall(tostring, rawMapID)
-            if okMapString and type(mapAsString) == "string" then
-                local numericToken = string.match(mapAsString, "^%s*([%+%-]?%d+%.?%d*)%s*$")
-                    or string.match(mapAsString, "^%s*([%+%-]?%d*%.%d+)%s*$")
-                if numericToken then
-                    local okNumber, numericValue = pcall(tonumber, numericToken)
-                    if okNumber and type(numericValue) == "number" then
-                        parsedMapID = numericValue
-                    end
-                end
-            end
-            playerMapID = CanonicalizeMapID(parsedMapID)
-        end
+    local inPreyZone = self:IsPreyQuestOnCurrentMap(questID, ctx)
+    if inPreyZone == false then
+        state.inPreyZone = false
+        state.lastZoneStatusRefreshAt = now
+        return false
+    elseif inPreyZone == true then
+        state.inPreyZone = true
+        state.lastZoneStatusRefreshAt = now
+        return true
     end
 
-    local questMapID = ResolveExpectedQuestMapID(questID, ctx)
-    if questMapID then
-        state.preyZoneMapID = questMapID
-    else
-        questMapID = CanonicalizeMapID(SafeToNumber(state.preyZoneMapID))
-    end
-
-    if not questMapID then
-        questMapID = CanonicalizeMapID(SafeToNumber(state.confirmedPreyZoneMapID))
-    end
-
-    if not questMapID then
-        local fallbackMapID = ResolveWidgetCertifiedQuestMapID(questID, state, playerMapID, ctx)
-        if fallbackMapID then
-            questMapID = fallbackMapID
-            state.preyZoneMapID = fallbackMapID
-        end
-    end
-
-    -- Do not infer quest zone from the current player map while quest-map APIs
-    -- are unresolved. In practice this can certify the wrong prey zone when the
-    -- player is physically in a different hunt zone.
-
-    local inPreyZone = nil
-    if questMapID and playerMapID then
-        inPreyZone = (playerMapID == questMapID)
-    end
-
-    if inPreyZone == true then
-        state.confirmedPreyZoneMapID = questMapID
-    end
-
-    state.playerMapID = nil
-    state.playerMapHierarchy = nil
-    state.zoneCacheDirty = false
-
-    state.inPreyZone = inPreyZone
+    state.inPreyZone = nil
     state.lastZoneStatusRefreshAt = now
-    return inPreyZone
+    return nil
 end
 
 function PreyContextRuntime:RefreshCurrentActivePreyQuestCache(state, ctx)

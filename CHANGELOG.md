@@ -2,18 +2,23 @@
 
 ## 3.0.5 - 2026-08-20
 
-### Fixed
-- Fixed the nil-call regression in the active-prey runtime gate caused by the quest-state check being invoked before the helper was safely initialized.
-- Kept the 3.0 update splash from reappearing on every patch while still allowing manual re-open from settings.
-- Updated the addon release metadata to 3.0.5 across the TOC, README, Wago metadata, and release packaging defaults.
+### Added
+- Added a working issue plan and runtime audit for the active prey-zone state investigation so the next debug pass remains anchored to the live `isOnMap` authority rule.
+- Restored the timestamped prey quest inspect output for issue reproduction and in-game correlation.
 
-## 3.0.4 - 2026-08-19
+### Changed
+- Rebuilt the 3.0.5 package on the 3.0.3 code baseline while keeping the 3.0.5 metadata aligned and carrying forward only the intended Coiled Isle map alias and Wago metadata updates.
+- Kept the release metadata consistent across the addon package and project metadata while continuing the prey-zone bug fix pass.
+- Tightened the runtime to prefer the Blizzard quest-log `isOnMap` answer whenever it is available, instead of relying on map or zone fallback logic for the active prey check.
 
 ### Fixed
-- Updated the addon release metadata to 3.0.4 across the TOC, README, splash version, Wago metadata, and release packaging defaults.
-- Fixed the 3.0 splash screen so it only reappears for the actual splash-content version or when the user manually reopens it from settings, instead of every patch release.
 - Added MapID 2641 to MapID 2512 to properly map to The Coiled Isle.
-- Added Wago project information.
+- Added Wago project metadata.
+- Cleared stale prey-zone evidence immediately when Blizzard reports `isOnMap=false`, preventing stale in-zone state from lingering across the next refresh.
+- Refined the zone-transition refresh path so it re-reads the active quest's live `isOnMap` answer instead of treating the previous state as authoritative during zone churn.
+
+### Investigation
+- The active prey-zone issue is narrowed to a remaining stale `state.inPreyZone` overwrite after a live `isOnMap=true` result. The next pass is focused on isolating the exact late write and removing it without broadening the runtime scope.
 
 ## 3.0.3 - 2026-08-16
 

@@ -7,7 +7,7 @@ Current release: `v3.0.5`
 Runtime safety note: In restricted instance content (`party`, `raid`, `scenario`, `delve`, `arena`, `pvp`), Preydator is intended to fail closed and keep runtime behavior inactive.
 Widget safety note: Preydator captures prey stage data from `Setup` snapshots and a constrained tracked-frame refresh path while explicitly skipping known taint-prone fields (`shownState`, `widgetID`, `widgetType`). Numeric payload handling stays on the sanitized `pcall -> tostring -> tonumber` path to reduce world-map tooltip/layout taint risk.
 Refresh safety note: when Blizzard briefly fails to return the active prey quest during reload or refresh timing windows, Preydator now keeps the already-tracked live prey quest as authoritative as long as it still exists in the quest log, preventing stage/progress resets like `66% -> 0%` mid-hunt.
-Zone safety note: prey-zone matching now re-evaluates stale quest map data against the live player map so new maps do not remain stuck on a previous zone ID, and the built-in report window keeps copy behavior safe from unintended overwrite when the user is selecting text.
+Zone safety note: prey-zone matching is now Blizzard-API first and uses quest-log `isOnMap` as the primary in-zone signal for active prey quest visibility, while retaining fallback handling only when Blizzard does not provide that field.
 
 ## What Preydator tracks
 
@@ -178,6 +178,12 @@ Bundled default files:
 - Inspect diagnostics:
 	- `/pd inspect` - print live addon diagnostics to chat.
 	- `/pd inspect bs` - open live addon diagnostics in the built-in report window.
+
+- Progress comparison diagnostics:
+	- `/pd pinspect` - compare Blizzard quest API progress values against the addon’s reported stage/progress state.
+	- `/pd pinspect <questID>` - compare a specific quest ID.
+	- `/pd pinspect bs` - open the progress comparison report in the built-in report window.
+	- `/pd pinspect <questID> bs` - open a specific comparison report in the built-in report window.
 
 - Quest inspect diagnostics:
 	- `/pd qinspect` - inspect the active prey quest.

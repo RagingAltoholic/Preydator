@@ -273,6 +273,100 @@ local function BuildQuestInspectReport(requestedQuestID)
     return lines, reportText
 end
 
+local function BuildProgressInspectReport(requestedQuestID)
+    local lines = {}
+    local function add(line)
+        lines[#lines + 1] = tostring(line or "")
+    end
+
+    local now = GetTime and GetTime() or 0
+    local state = (type(Preydator.GetState) == "function") and Preydator.GetState() or {}
+    local settings = (type(Preydator.GetSettings) == "function") and Preydator.GetSettings() or {}
+
+    local liveQuestID = nil
+    if C_QuestLog and type(C_QuestLog.GetActivePreyQuest) == "function" then
+        local okLiveQuestID, rawLiveQuestID = pcall(C_QuestLog.GetActivePreyQuest)
+        liveQuestID = okLiveQuestID and SafeToNumber(rawLiveQuestID) or nil
+    end
+
+    local questID = SafeToNumber(requestedQuestID) or liveQuestID or SafeToNumber(state.activeQuestID)
+    local objectiveText = nil
+    local objectiveDone = nil
+    local objectiveCount = 0
+    local totalFulfilled = 0
+    local totalRequired = 0
+    local stageState = nil
+    local stagePercent = nil
+    local status = "unknown"
+
+    if C_QuestLog and type(C_QuestLog.GetQuestObjectives) == "function" and questID and questID > 0 then
+        local okObjectives, objectives = pcall(C_QuestLog.GetQuestObjectives, questID)
+        objectives = okObjectives and type(objectives) == "table" and objectives or {}
+        objectiveCount = #objectives
+
+        for _, objective in ipairs(objectives) do
+            if type(objective) == "table" then
+                local fulfilled = SafeToNumber(objective.numFulfilled)
+                local required = SafeToNumber(objective.numRequired)
+                local text = objective.text
+                local finished = objective.finished == true
+                if fulfilled ~= nil and required ~= nil then
+                    totalFulfilled = totalFulfilled + fulfilled
+                    totalRequired = totalRequired + required
+                end
+                if finished then
+                    objectiveDone = true
+                end
+                if type(text) == "string" and text ~= "" then
+                    objectiveText = text
+                end
+            end
+        end
+
+        if objectiveCount > 0 then
+            if totalRequired > 0 then
+                local ratio = totalFulfilled / totalRequired
+                status = ratio >= 1 and "complete" or (ratio > 0 and "in-progress" or "not-started")
+            elseif objectiveDone == true then
+                status = "complete"
+            end
+        end
+    end
+
+    stageState = SafeToNumber(state.progressState)
+    stagePercent = SafeToNumber(state.progressPercent)
+
+    add("Preydator Progress Inspect (module) | addon=" .. GetAddonVersionSafe())
+    add("- time=" .. string.format("%.3f", now) .. " | questID=" .. SafeValue(questID) .. " | liveQuestID=" .. SafeValue(liveQuestID) .. " | trackedQuestID=" .. SafeValue(state.activeQuestID))
+    add("- reportedStage=" .. SafeValue(state.stage) .. " | reportedProgressState=" .. SafeValue(stageState) .. " | reportedPercent=" .. SafeValue(stagePercent))
+    add("- objectiveCount=" .. tostring(objectiveCount) .. " | objectiveStatus=" .. tostring(status) .. " | objectiveText=" .. SafeValue(objectiveText))
+    add("- fulfilled=" .. tostring(totalFulfilled) .. " | required=" .. tostring(totalRequired) .. " | inPreyZone=" .. SafeValue(state.inPreyZone) .. " | onlyShowInPreyZone=" .. tostring(settings and settings.onlyShowInPreyZone == true))
+
+    if objectiveCount > 0 then
+        for idx, objective in ipairs(objectives or {}) do
+            if type(objective) == "table" then
+                add("- objective[" .. tostring(idx) .. "] finished=" .. tostring(objective.finished == true)
+                    .. " numFulfilled=" .. SafeValue(objective.numFulfilled)
+                    .. " numRequired=" .. SafeValue(objective.numRequired)
+                    .. " text=" .. SafeValue(objective.text))
+            end
+        end
+    else
+        add("- objective data unavailable for this quest.")
+    end
+
+    if questID and questID > 0 and C_QuestLog and type(C_QuestLog.GetTitleForQuestID) == "function" then
+        local okTitle, title = pcall(C_QuestLog.GetTitleForQuestID, questID)
+        if okTitle then
+            add("- questTitle=" .. SafeValue(title))
+        end
+    end
+
+    local reportText = table.concat(lines, "\n")
+    _G.PreydatorLastProgressInspectReport = reportText
+    return lines, reportText
+end
+
 local function BuildInspectReport()
     local lines = {}
     local function add(line)
@@ -339,8 +433,7 @@ local function BuildInspectReport()
     add("- instance inInstance=" .. tostring(inInstance) .. " | instanceType=" .. tostring(instanceType) .. " | playerMapType=" .. tostring(playerMapType))
     add("- quest live=" .. tostring(liveQuestID) .. " | hasActive=" .. tostring(hasActiveQuest) .. " | tracked=" .. tostring(state.activeQuestID))
     add("- state stage=" .. tostring(state.stage) .. " | progressState=" .. tostring(state.progressState) .. " | progressPercent=" .. tostring(state.progressPercent))
-    add("- preyZone mapID=" .. tostring(state.preyZoneMapID) .. " | preyZoneName=" .. tostring(state.preyZoneName) .. " | zoneCacheDirty=" .. tostring(state.zoneCacheDirty))
-    add("- inPreyZone=" .. tostring(state.inPreyZone)
+    add("- preyZoneName=" .. tostring(state.preyZoneName) .. " | inPreyZone=" .. tostring(state.inPreyZone)
         .. " | onlyShowInPreyZone=" .. tostring(settings and settings.onlyShowInPreyZone == true)
         .. " | disableDefaultPreyIcon=" .. tostring(settings and settings.disableDefaultPreyIcon == true))
 
@@ -369,18 +462,13 @@ local function BuildInspectReport()
     end
 
     local preyWidgetVisible = suppressionDebug and suppressionDebug.preyIconShown == true
-    local hasResolvedPreyZoneEvidence = state and (state.preyZoneMapID ~= nil or state.confirmedPreyZoneMapID ~= nil)
-    local hasCertifiedWidgetZoneSignal = state and state.inPreyZone == nil
-        and preyWidgetVisible
-        and hasResolvedPreyZoneEvidence
     local onlyShowInPreyZone = settings and settings.onlyShowInPreyZone == true
     local forceShowBar = state and state.forceShowBar == true
     local forceKillStage = now < ((state and state.killStageUntil) or 0)
     local forceAmbushAlert = now < ((state and state.ambushAlertUntil) or 0)
     local forceBloodyCommandAlert = now < ((state and state.bloodyCommandAlertUntil) or 0)
     local isOutOfPreyZone = hasActiveQuest and state and state.inPreyZone == false
-    local inStageFourInZone = state and state.stage == 4
-        and (state.inPreyZone == true or hasCertifiedWidgetZoneSignal)
+    local inStageFourInZone = state and state.stage == 4 and state.inPreyZone == true
     local editModePreview = settings and settings.showInEditMode == true and _G.EditModeManagerFrame and _G.EditModeManagerFrame.IsShown and _G.EditModeManagerFrame:IsShown()
     local isRestrictedInstance = inInstance == true and (
         instanceType == "pvp"
@@ -412,8 +500,7 @@ local function BuildInspectReport()
         shouldShowBar = true
         visibilityReason = "editModePreview"
     elseif onlyShowInPreyZone then
-        local inZoneSignal = (state and state.inPreyZone == true)
-            or hasCertifiedWidgetZoneSignal
+        local inZoneSignal = state and state.inPreyZone == true
         shouldShowBar = (hasActiveQuest and inZoneSignal) or inStageFourInZone
         visibilityReason = shouldShowBar and "onlyShowInPreyZone-pass" or "onlyShowInPreyZone-block"
     else
@@ -532,7 +619,7 @@ end
 local DebugInspectModule = {}
 
 function DebugInspectModule:OnSlashCommand(text, rest)
-    if text ~= "inspect" and text ~= "qinspect" then
+    if text ~= "inspect" and text ~= "pinspect" and text ~= "qinspect" then
         return false
     end
 
@@ -542,6 +629,7 @@ function DebugInspectModule:OnSlashCommand(text, rest)
     end
 
     local isQuestInspect = (text == "qinspect")
+    local isProgressInspect = (text == "pinspect")
     local tokens = {}
     for token in tostring(rest or ""):gmatch("%S+") do
         tokens[#tokens + 1] = string.lower(token)
@@ -553,7 +641,7 @@ function DebugInspectModule:OnSlashCommand(text, rest)
     for _, token in ipairs(tokens) do
         if token == "bs" then
             mode = "report"
-        elseif isQuestInspect and requestedQuestID == nil then
+        elseif (isQuestInspect or isProgressInspect) and requestedQuestID == nil then
             local parsedQuestID = tonumber(token)
             if parsedQuestID and parsedQuestID > 0 then
                 requestedQuestID = parsedQuestID
@@ -568,6 +656,8 @@ function DebugInspectModule:OnSlashCommand(text, rest)
     local lines, reportText
     if isQuestInspect then
         lines, reportText = BuildQuestInspectReport(requestedQuestID)
+    elseif isProgressInspect then
+        lines, reportText = BuildProgressInspectReport(requestedQuestID)
     else
         lines, reportText = BuildInspectReport()
     end
@@ -579,11 +669,15 @@ function DebugInspectModule:OnSlashCommand(text, rest)
     end
 
     if mode == "report" then
-        local header = isQuestInspect and "Preydator Quest Inspect Report" or "Preydator Inspect Report"
+        local header = isQuestInspect and "Preydator Quest Inspect Report"
+            or isProgressInspect and "Preydator Progress Inspect Report"
+            or "Preydator Inspect Report"
         local okOpened, opened = pcall(ShowReportWindow, header, reportText)
         if okOpened and opened then
             if isQuestInspect then
                 print("Preydator: Quest inspect report opened in the built-in report window.")
+            elseif isProgressInspect then
+                print("Preydator: Progress inspect report opened in the built-in report window.")
             else
                 print("Preydator: Inspect report opened in the built-in report window.")
             end
@@ -597,6 +691,8 @@ function DebugInspectModule:OnSlashCommand(text, rest)
 
     if isQuestInspect then
         print("Preydator: Quest inspect report cached in PreydatorLastQuestInspectReport (debug module).")
+    elseif isProgressInspect then
+        print("Preydator: Progress inspect report cached in PreydatorLastProgressInspectReport (debug module).")
     else
         print("Preydator: Inspect report cached in PreydatorLastInspectReport (debug module).")
     end

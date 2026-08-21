@@ -520,6 +520,10 @@ local function UpdateBarDisplay()
     local constants = ctx.constants
     local fillInset = ctx.fillInset
     local getTime = ctx.getTime
+    local validQuestID = ctx.isValidQuestID and type(ctx.isValidQuestID) == "function" and ctx.isValidQuestID
+        or function(questID)
+            return type(questID) == "number" and questID > 0
+        end
 
     local customizationV2 = ctx.getModule("CustomizationStateV2")
     local barEnabled = true
@@ -545,22 +549,47 @@ local function UpdateBarDisplay()
     ctx.applyDefaultPreyIconVisibility()
 
     local now = getTime()
-    local hasActiveQuest = state.activeQuestID ~= nil
+    local liveQuestID = ctx.getCurrentActivePreyQuestCached and ctx.getCurrentActivePreyQuestCached(0) or nil
+    if validQuestID(liveQuestID) and not validQuestID(state.activeQuestID) then
+        state.activeQuestID = liveQuestID
+    end
+    local hasActiveQuest = validQuestID(state.activeQuestID) or validQuestID(liveQuestID)
     local forceKillStage = now < (state.killStageUntil or 0)
     local forceAmbushAlert = now < (state.ambushAlertUntil or 0)
     local forceBloodyCommandAlert = now < (state.bloodyCommandAlertUntil or 0)
+
+    local function ResolveLiveInPreyZone()
+        if not hasActiveQuest then
+            state.inPreyZone = nil
+            return nil
+        end
+
+        local questID = tonumber(state.activeQuestID)
+        if questID and questID > 0 and C_QuestLog and type(C_QuestLog.GetLogIndexForQuestID) == "function"
+            and type(C_QuestLog.GetInfo) == "function" then
+            local logIndex = C_QuestLog.GetLogIndexForQuestID(questID)
+            if logIndex then
+                local okInfo, info = pcall(C_QuestLog.GetInfo, logIndex)
+                if okInfo and type(info) == "table" and info.isOnMap ~= nil then
+                    local liveInPreyZone = info.isOnMap == true
+                    state.inPreyZone = liveInPreyZone
+                    return liveInPreyZone
+                end
+            end
+        end
+
+        state.inPreyZone = nil
+        return nil
+    end
+
+    local effectiveInPreyZone = ResolveLiveInPreyZone()
+
     -- Treat only explicit false as out-of-zone. Nil means unknown/not yet resolved,
     -- and should not hard-hide or zero-out active hunt display.
-    local isOutOfPreyZone = hasActiveQuest and state.inPreyZone == false
+    local isOutOfPreyZone = hasActiveQuest and effectiveInPreyZone == false
     local onlyShowInPreyZone = settings.onlyShowInPreyZone == true
-    local preyWidgetVisible = type(ctx.isAnyTrackedPreyWidgetShown) == "function"
-        and ctx.isAnyTrackedPreyWidgetShown() == true
-    local hasResolvedPreyZoneEvidence = state.preyZoneMapID ~= nil or state.confirmedPreyZoneMapID ~= nil
-    local hasCertifiedWidgetZoneSignal = state.inPreyZone == nil
-        and preyWidgetVisible
-        and hasResolvedPreyZoneEvidence
-    local inStageFourInZone = (state.stage == constants.MAX_STAGE)
-        and (state.inPreyZone == true or hasCertifiedWidgetZoneSignal)
+    local hasExplicitOutOfZone = effectiveInPreyZone == false
+    local inStageFourInZone = (state.stage == constants.MAX_STAGE) and (effectiveInPreyZone == true)
     local function IsEditModePreviewEnabled()
         if settings.showInEditMode ~= true then
             return false
@@ -573,15 +602,26 @@ local function UpdateBarDisplay()
     local editModePreview = IsEditModePreviewEnabled()
     local isRestrictedInstance = (ctx.isRestrictedInstanceForPreyBar() == true)
     local shouldShow = false
+    local liveInZoneQuestVisible = hasActiveQuest and effectiveInPreyZone == true and not isRestrictedInstance and not hasExplicitOutOfZone
 
     if isRestrictedInstance and not editModePreview then
+        shouldShow = false
+    elseif hasExplicitOutOfZone then
         shouldShow = false
     elseif state.forceShowBar or forceKillStage or forceAmbushAlert or forceBloodyCommandAlert or editModePreview then
         shouldShow = true
     elseif onlyShowInPreyZone then
-        local inZoneSignal = state.inPreyZone == true or hasCertifiedWidgetZoneSignal
-        shouldShow = (hasActiveQuest and inZoneSignal) or inStageFourInZone
+        shouldShow = (hasActiveQuest and effectiveInPreyZone == true) or inStageFourInZone
     else
+        shouldShow = true
+    end
+
+    if liveInZoneQuestVisible then
+        shouldShow = true
+    end
+
+    local hasLiveInZoneQuest = hasActiveQuest and (effectiveInPreyZone == true or state.inPreyZone == true)
+    if hasLiveInZoneQuest and state.progressState == nil then
         shouldShow = true
     end
 

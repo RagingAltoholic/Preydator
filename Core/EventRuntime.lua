@@ -57,29 +57,55 @@ function EventRuntime:HandleEvent(event, arg1, arg2, ctx)
         or event == "ZONE_CHANGED"
         or event == "ZONE_CHANGED_INDOORS"
         or event == "ZONE_CHANGED_NEW_AREA" then
-        if event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_LOGIN" then
-            if event ~= "ZONE_CHANGED_NEW_AREA" or state.inPreyZone ~= true or state.confirmedPreyZoneMapID == nil then
-                -- Hard reset on login/enter-world, or ZONE_CHANGED_NEW_AREA without a
-                -- mixin-confirmed zone: mixin must re-fire before inPreyZone can be true.
-                state.inPreyZone = nil
-                state.confirmedPreyZoneMapID = nil
-                state.zoneCacheDirty = true
-            else
-                -- ZONE_CHANGED_NEW_AREA fired while the mixin has confirmed the prey
-                -- zone. WoW fires this event for sub-areas within the same outdoor zone
-                -- (terrain sections, camps, etc.) even when the map ID has not changed.
-                -- Treat it as a sub-area event and let the confirmedMapID latch in
-                -- RefreshInPreyZoneStatus verify the player is still on the same map;
-                -- that will clear inPreyZone if the map actually changed.
-                state.zoneCacheDirty = true
-            end
-        elseif state.inPreyZone ~= true then
-            -- Sub-zone change (ZONE_CHANGED / ZONE_CHANGED_INDOORS) while not yet
-            -- confirmed: mark dirty so the check runs on next tick.
-            state.zoneCacheDirty = true
+        local activeQuestID = state and state.activeQuestID or nil
+        local hasActiveQuest = type(ctx.isValidQuestID) == "function" and ctx.isValidQuestID(activeQuestID)
+        if not hasActiveQuest and type(ctx.getCurrentActivePreyQuestCached) == "function" then
+            local liveQuestID = ctx.getCurrentActivePreyQuestCached(0)
+            hasActiveQuest = type(ctx.isValidQuestID) == "function" and ctx.isValidQuestID(liveQuestID)
         end
-        -- Sub-zone changes while inPreyZone=true are intentionally ignored: moving
-        -- within the same prey zone must not clear the mixin-confirmed status.
+
+        if type(AddDebugLog) == "function" then
+            AddDebugLog("ZoneTrigger",
+                "event=" .. tostring(event)
+                    .. " | activeQuestID=" .. tostring(activeQuestID)
+                    .. " | hasActiveQuest=" .. tostring(hasActiveQuest)
+                    .. " | state.inPreyZone=" .. tostring(state and state.inPreyZone)
+                    .. " | questListenUntil=" .. tostring(state and state.questListenUntil),
+                false)
+        end
+
+        -- The bar must follow the live quest-log isOnMap answer while the hunt is active.
+        -- Zone churn should refresh the live API answer rather than clearing the in-zone
+        -- boolean for an active hunt, which causes the bar to hide even when the quest-log
+        -- still reports the prey as on-map.
+        if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
+            if hasActiveQuest then
+                local questID = activeQuestID or (type(ctx.getCurrentActivePreyQuestCached) == "function" and ctx.getCurrentActivePreyQuestCached(0))
+                if type(ctx.isValidQuestID) == "function" and ctx.isValidQuestID(questID) then
+                    local liveZoneState = nil
+                    if type(C_QuestLog) == "table"
+                        and type(C_QuestLog.GetLogIndexForQuestID) == "function"
+                        and type(C_QuestLog.GetInfo) == "function" then
+                        local logIndex = C_QuestLog.GetLogIndexForQuestID(questID)
+                        if logIndex then
+                            local okInfo, info = pcall(C_QuestLog.GetInfo, logIndex)
+                            if okInfo and type(info) == "table" and info.isOnMap ~= nil then
+                                liveZoneState = info.isOnMap == true
+                            end
+                        end
+                    end
+
+                    if liveZoneState ~= nil then
+                        state.inPreyZone = liveZoneState
+                    end
+                end
+            else
+                state.inPreyZone = nil
+                if type(AddDebugLog) == "function" then
+                    AddDebugLog("ZoneTrigger","event=" .. tostring(event) .. " | cleared stale inPreyZone because no active quest was present", false)
+                end
+            end
+        end
         if event == "PLAYER_ENTERING_WORLD" and ui.barFrame and type(ctx.applyBarSettings) == "function" then
             ctx.applyBarSettings()
         end
@@ -240,15 +266,16 @@ function EventRuntime:HandleEvent(event, arg1, arg2, ctx)
     end
 
     if event == "QUEST_TURNED_IN" and state.activeQuestID and arg1 == state.activeQuestID then
-        -- Clear cached zone identity at turn-in boundary so next prey hunt
-        -- always resolves a fresh map target.
+        -- The bar follows the live quest-log isOnMap answer. Clear stale state at
+        -- turn-in without keeping any secondary map/zone cache that can drift.
+        state.activeQuestID = nil
         state.preyZoneName = nil
-        state.preyZoneMapID = nil
-        state.confirmedPreyZoneMapID = nil
         state.inPreyZone = nil
-        state.zoneCacheDirty = true
         state.cachedActivePreyQuestID = nil
         state.cachedActivePreyQuestAt = 0
+        state.progressState = nil
+        state.progressPercent = nil
+        state.stage = 1
 
         state.killStageUntil = (type(ctx.getTime) == "function" and ctx.getTime() or 0) + 8
         state.progressState = ctx.preyProgressFinal
@@ -278,14 +305,33 @@ function EventRuntime:HandleEvent(event, arg1, arg2, ctx)
     end
 
     if event == "QUEST_REMOVED" and state.activeQuestID and arg1 == state.activeQuestID then
-        -- Abandon/removal boundary: clear prey-zone cache immediately.
+        -- Abandon/removal boundary: drop the tracked quest and reset the bar state
+        -- without carrying any secondary map/zone cache forward.
+        state.activeQuestID = nil
         state.preyZoneName = nil
-        state.preyZoneMapID = nil
-        state.confirmedPreyZoneMapID = nil
         state.inPreyZone = nil
-        state.zoneCacheDirty = true
         state.cachedActivePreyQuestID = nil
         state.cachedActivePreyQuestAt = 0
+        state.progressState = nil
+        state.progressPercent = nil
+        state.stage = 1
+        if type(ctx.updateBarDisplay) == "function" then
+            ctx.updateBarDisplay()
+        end
+    end
+
+    if event == "QUEST_LOG_UPDATE" then
+        local trackedQuestID = state.activeQuestID
+        if trackedQuestID and type(C_QuestLog) == "table" and type(C_QuestLog.IsOnQuest) == "function" then
+            local okOnQuest, isOnQuest = pcall(C_QuestLog.IsOnQuest, C_QuestLog, trackedQuestID)
+            local questEnded = okOnQuest and isOnQuest ~= true
+            if questEnded and type(ctx.clearTrackedPreyQuestState) == "function" then
+                ctx.clearTrackedPreyQuestState()
+                if type(ctx.updateBarDisplay) == "function" then
+                    ctx.updateBarDisplay()
+                end
+            end
+        end
     end
 
     now = now or (type(ctx.getTime) == "function" and ctx.getTime() or 0)
