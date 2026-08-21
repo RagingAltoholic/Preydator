@@ -209,6 +209,7 @@ local ARATOR_SOUND_IDS = {
 local NormalizeSoundSettings
 local GetSoundPathForKey
 local IsValidQuestID
+local IsQuestStillActive
 local ShouldSuppressDefaultPreyEncounter
 local ApplyAratorSilencing
 
@@ -1761,10 +1762,6 @@ end
 local function ShouldScanPreyRuntimeNow()
     local now = GetTime and GetTime() or 0
 
-    if type(IsQuestStillActive) ~= "function" then
-        return ((state and state.questListenUntil) or 0) > now
-    end
-
     if IsValidQuestID(state and state.activeQuestID) and IsQuestStillActive(state.activeQuestID) then
         return true
     end
@@ -2106,7 +2103,7 @@ TryHandleEchoOfPredationNameplate = function(unitToken, source)
     return TryPlayEchoOfPredationEncounter(npcID, source)
 end
 
-local function IsQuestStillActive(questID)
+IsQuestStillActive = function(questID)
     if not questID or questID < 1 then
         return false
     end
@@ -6141,4 +6138,3 @@ frame:RegisterEvent("QUEST_ACCEPTED")
 frame:RegisterEvent("PLAYER_ALIVE")
 
 Preydator:SetCorePreyRuntimeEventsRegistered(false)
-
